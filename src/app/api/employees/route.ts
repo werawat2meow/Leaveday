@@ -7,6 +7,7 @@ import bcrypt from "bcryptjs";
 
 type Role = "MASTER_ADMIN" | "ADMIN" | "MANAGER" | "USER";
 
+/* ---------------- GET: list employees ---------------- */
 export async function GET() {
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -17,52 +18,36 @@ export async function GET() {
   return NextResponse.json(list);
 }
 
+/* ---------------- POST: create employee (+ auto create user) ---------------- */
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions);
   const role = (session as any)?.role as Role | undefined;
 
-  console.log("[API /employees] session =", {
-    email: session?.user?.email,
-    role,
-  });
-
-  if (!role) {
-    console.warn("[API /employees] 401 no role/session");
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  if (!role) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   if (role !== "MASTER_ADMIN" && role !== "ADMIN") {
-    console.warn("[API /employees] 403 forbidden role =", role);
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   const body = await req.json().catch(() => ({}));
-  console.log("[API /employees] body =", body);
 
-  // VALIDATE
+  // validate
   if (!body.empNo || !body.firstName || !body.lastName) {
-    console.warn("[API /employees] 400 missing fields empNo/firstName/lastName");
     return NextResponse.json({ error: "empNo/firstName/lastName is required" }, { status: 400 });
   }
   if (!body.email) {
-    console.warn("[API /employees] 400 missing email");
     return NextResponse.json({ error: "email is required" }, { status: 400 });
   }
   if (!/^\S+@\S+\.\S+$/.test(body.email)) {
-    console.warn("[API /employees] 400 invalid email format");
     return NextResponse.json({ error: "รูปแบบอีเมลไม่ถูกต้อง" }, { status: 400 });
   }
   if (!body.idCard) {
-    console.warn("[API /employees] 400 missing idCard");
     return NextResponse.json({ error: "idCard is required (ใช้เป็นรหัสเริ่มต้น)" }, { status: 400 });
   }
 
   try {
-    // TRANSACTION
     const emp = await prisma.$transaction(async (tx) => {
       // หา/สร้าง user
       let user = await tx.user.findUnique({ where: { email: body.email } });
-      console.log("[API /employees] find user by email ->", !!user);
-
       if (!user) {
         const passwordHash = await bcrypt.hash(String(body.idCard), 12);
         user = await tx.user.create({
@@ -73,7 +58,6 @@ export async function POST(req: NextRequest) {
             passwordHash,
           },
         });
-        console.log("[API /employees] created user id =", user.id);
       }
 
       // สร้าง employee
@@ -105,18 +89,92 @@ export async function POST(req: NextRequest) {
           userId: user.id,
         },
       });
-      console.log("[API /employees] created employee id =", created.id, "userId =", created.userId);
+
       return created;
     });
 
-    console.log("[API /employees] 201 OK employeeId =", emp.id);
     return NextResponse.json(emp, { status: 201 });
   } catch (e: any) {
-    console.error("[API /employees] ERROR =", e);
     if (e?.code === "P2002") {
-      // unique constraint
       return NextResponse.json({ error: "ข้อมูลซ้ำ (empNo หรือ email หรือ idCard)" }, { status: 409 });
     }
+    return NextResponse.json({ error: "Server error" }, { status: 500 });
+  }
+}
+
+/* ---------------- PUT: update employee (+ sync user name) ---------------- */
+export async function PUT(req: NextRequest) {
+  const session = await getServerSession(authOptions);
+  const role = (session as any)?.role as Role | undefined;
+  if (!role) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (role !== "MASTER_ADMIN" && role !== "ADMIN") {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  const { searchParams } = new URL(req.url);
+
+  // ⬇️ แก้ตรงนี้: แปลงเป็น number และตรวจสอบ
+  const id = Number(searchParams.get("id"));
+  if (!Number.isFinite(id) || id <= 0) {
+    return NextResponse.json({ error: "invalid id" }, { status: 400 });
+  }
+
+  const body = await req.json().catch(() => ({}));
+  if (typeof body.email !== "undefined" && body.email && !/^\S+@\S+\.\S+$/.test(body.email)) {
+    return NextResponse.json({ error: "รูปแบบอีเมลไม่ถูกต้อง" }, { status: 400 });
+  }
+
+  try {
+    const updated = await prisma.$transaction(async (tx) => {
+      const emp = await tx.employee.update({
+        // ⬇️ ใช้ number ตามชนิด Int ของ Prisma
+        where: { id }, 
+        data: {
+          empNo: body.empNo ?? undefined,
+          email: body.email ?? undefined,
+          prefix: body.prefix ?? undefined,
+          firstName: body.firstName ?? undefined,
+          lastName: body.lastName ?? undefined,
+          idCard: body.idCard ?? undefined,
+          org: body.org ?? undefined,
+          department: body.department ?? undefined,
+          division: body.division ?? undefined,
+          unit: body.unit ?? undefined,
+          levelP: body.levelP ?? undefined,
+          lineId: body.lineId ?? undefined,
+          startDate: typeof body.startDate !== "undefined"
+            ? (body.startDate ? new Date(body.startDate) : null)
+            : undefined,
+          weeklyHoliday: body.weeklyHoliday ?? undefined,
+          vacationDays: typeof body.vacationDays !== "undefined" ? Number(body.vacationDays) : undefined,
+          businessDays: typeof body.businessDays !== "undefined" ? Number(body.businessDays) : undefined,
+          sickDays: typeof body.sickDays !== "undefined" ? Number(body.sickDays) : undefined,
+          ordainDays: typeof body.ordainDays !== "undefined" ? Number(body.ordainDays) : undefined,
+          maternityDays: typeof body.maternityDays !== "undefined" ? Number(body.maternityDays) : undefined,
+          unpaidDays: typeof body.unpaidDays !== "undefined" ? Number(body.unpaidDays) : undefined,
+          birthdayDays: typeof body.birthdayDays !== "undefined" ? Number(body.birthdayDays) : undefined,
+          annualHolidays: typeof body.annualHolidays !== "undefined" ? Number(body.annualHolidays) : undefined,
+          photoUrl: typeof body.photoUrl !== "undefined" ? (body.photoUrl || null) : undefined,
+        },
+      });
+
+      if (emp.email) {
+        const u = await tx.user.findUnique({ where: { email: emp.email } });
+        if (u) {
+          await tx.user.update({
+            where: { id: u.id },
+            data: { name: `${emp.firstName ?? ""} ${emp.lastName ?? ""}`.trim() || u.name },
+          });
+        }
+      }
+
+      return emp;
+    });
+
+    return NextResponse.json(updated);
+  } catch (e: any) {
+    if (e?.code === "P2025") return NextResponse.json({ error: "not found" }, { status: 404 });
+    if (e?.code === "P2002") return NextResponse.json({ error: "ข้อมูลซ้ำ (empNo/email/idCard)" }, { status: 409 });
     return NextResponse.json({ error: "Server error" }, { status: 500 });
   }
 }

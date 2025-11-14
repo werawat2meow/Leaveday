@@ -3,6 +3,8 @@ import { writeFile, mkdir } from "fs/promises";
 import path from "path";
 import crypto from "crypto";
 
+export const runtime = "nodejs";
+
 // ใช้ Node runtime (ต้องเขียนไฟล์ลงดิสก์)
 export async function POST(req: NextRequest) {
     try {
@@ -28,6 +30,7 @@ export async function POST(req: NextRequest) {
         // โฟล์เดอร์ปลายทาง (public/uploads)
         const folder = path.join(process.cwd(), "public", "uploads");
         await mkdir(folder, { recursive: true });
+        await writeFile(path.join(folder, filename), buffer);
 
         const url = `/uploads/${filename}`; // เสิร์ฟจาก public/
         return NextResponse.json({ url }, { status: 201 });

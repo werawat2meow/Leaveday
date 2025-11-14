@@ -23,6 +23,25 @@ enum LeaveStatus {
   REJECTED
 }
 
+enum LeaveKind {
+  ANNUAL          // Annual Leave
+  SICK            // Sick Leave
+  BUSINESS        // Personal/Business Leave
+  UNPAID          // Leave without pay
+  BIRTHDAY        // Birthday Leave
+  ORDAIN          // Monkhood/Ordain
+  MATERNITY       // Maternity Leave
+  SHIFT_CHANGE    // Shift Change (ไม่ตัดสิทธิ์)
+  HOLIDAY_CHANGE  // Holiday Change (ไม่ตัดสิทธิ์)
+  OT              // OT (ไม่ตัดสิทธิ์)
+}
+
+enum LeaveSession {
+  FULL   // เต็มวัน
+  AM     // ครึ่งเช้า
+  PM     // ครึ่งบ่าย
+}
+
 /**
  * ---- Models ----
  */
@@ -54,10 +73,20 @@ model Leave {
   approver   User? @relation("ApproverRequests", fields: [approverId], references: [id])
   approverId Int?
 
-  type      String // ภายหลังอยากทำ enum ก็ได้
-  startDate DateTime
-  endDate   DateTime
-  reason    String?
+  // 🔁 เปลี่ยนจาก type:String → kind:LeaveKind
+  kind       LeaveKind
+  startDate  DateTime
+  endDate    DateTime
+
+  // ✅ เพิ่มฟิลด์ให้ครบตามฟอร์ม
+  session       LeaveSession?
+  reason        String?
+  contact       String?
+  handoverTo    String?
+  attachmentUrl String?
+
+  // ✅ เก็บจำนวน "วันทำการที่นับแล้ว" (รองรับ .5)
+  requestedDays Decimal @default(0.0) @db.Decimal(5,2)
 
   status     LeaveStatus @default(PENDING)
   approvedAt DateTime?
@@ -68,8 +97,8 @@ model Leave {
   @@index([userId])
   @@index([approverId])
   @@index([status, createdAt])
+  @@index([kind, startDate, endDate]) // ช่วย query รายปี/ตามประเภท
 }
-
 model Employee {
   id             Int       @id @default(autoincrement())
   empNo          String    @unique
@@ -135,20 +164,22 @@ model Holiday {
 
 
 model Approver {
-  id         Int      @id @default(autoincrement())
-  prefix     String?           // คำนำหน้าชื่อ
+  id          Int      @id @default(autoincrement())
+  prefix      String?
   firstNameTh String
   lastNameTh  String
-  firstNameEn String?          // ถ้าอยากเก็บภาษาอังกฤษด้วย
+  firstNameEn String?
   lastNameEn  String?
-  empNo      String   @unique  // รหัสพนักงาน (unique)
-  citizenId  String?  @unique  // บัตรประชาชน (ถ้าจะ unique)
-  org        String?           // สังกัด
-  department String?           // แผนก
-  division   String?           // ฝ่าย
-  unit       String?           // หน่วย
-  level      String?           // Level P
-  lineId     String?
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  empNo       String   @unique
+  citizenId   String?  @unique
+  org         String?
+  department  String?
+  division    String?
+  unit        String?
+  level       String?
+  lineId      String?
+  email       String?  @unique   // ✅ เพิ่มเพื่อผูกกับตาราง User
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 }

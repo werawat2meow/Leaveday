@@ -6,10 +6,19 @@ const prisma = new PrismaClient();
 
 type RowDTO = { level: string; vacation: number | ""; business: number | ""; sick: number | ""; active?: boolean };
 
-export async function GET() {
+export async function GET(req: Request) {
   try {
+    const { searchParams } = new URL(req.url);
+    const level = searchParams.get("level");
+
+    if (level) {
+      const row = await prisma.leaveRight.findUnique({ where: { level } });
+      if (!row) return NextResponse.json({ message: "not found", data: null }, { status: 404 });
+      return NextResponse.json({ message: "success", data: row });
+    }
+
     const rows = await prisma.leaveRight.findMany({
-      where: { active: true },            // ถ้าไม่ใช้ soft delete ให้ลบบรรทัดนี้
+      where: { active: true },
       orderBy: { level: "asc" },
     });
     return NextResponse.json({ data: rows });

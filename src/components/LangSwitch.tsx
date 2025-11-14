@@ -1,17 +1,30 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 
-type Lang = "th" | "en";
+// เพิ่มรหัสภาษาใหม่ตรงนี้ (my, zh-CN)
+// ถ้าจะใช้จีนตัวเต็ม เปลี่ยน "zh-CN" เป็น "zh-TW" หรือใส่ทั้งสองตัวก็ได้
+type Lang = "th" | "en" | "my" | "zh-CN";
 
 const LANGS: { code: Lang; label: string; flag: string }[] = [
-  { code: "th", label: "ไทย",    flag: "🇹🇭" },
-  { code: "en", label: "English", flag: "🇬🇧" },
+  { code: "th",   label: "ไทย",             flag: "🇹🇭" },
+  { code: "en",   label: "English",         flag: "🇬🇧" },
+  { code: "my",   label: "เมียนมา",           flag: "🇲🇲" }, // Burmese
+  { code: "zh-CN",label: "ภาษาจีน",       flag: "🇨🇳" }, // Chinese (Simplified)
+  // ถ้าต้องการตัวเต็ม เพิ่มบรรทัดนี้ด้วย:
+  // { code: "zh-TW" as Lang, label: "中文（繁體）", flag: "🇹🇼" },
 ];
 
 function setCookie(name: string, value: string) {
+  // note: cookie บน localhost จะไม่ set domain — เผื่อไว้ด้วย try/catch
   document.cookie = `${name}=${value}; path=/`;
-  const host = location.hostname.startsWith("www.") ? location.hostname.slice(4) : location.hostname;
-  document.cookie = `${name}=${value}; path=/; domain=.${host}`;
+  try {
+    const host = location.hostname.startsWith("www.")
+      ? location.hostname.slice(4)
+      : location.hostname;
+    if (host.includes(".")) {
+      document.cookie = `${name}=${value}; path=/; domain=.${host}`;
+    }
+  } catch {}
 }
 
 function applyLang(lang: Lang) {
@@ -20,6 +33,8 @@ function applyLang(lang: Lang) {
     sel.value = lang;
     sel.dispatchEvent(new Event("change"));
   } else {
+    // ตั้ง cookie ให้ Google Website Translator รับรู้
+    // ใช้ทั้ง /auto/{lang} และ /th/{lang} ตาม logic เดิมของคุณ
     setCookie("googtrans", `/auto/${lang}`);
     setCookie("googtrans", `/th/${lang}`);
     location.reload();
@@ -28,20 +43,21 @@ function applyLang(lang: Lang) {
   window.dispatchEvent(new CustomEvent("app:lang", { detail: lang }));
 }
 
+const isLang = (v: unknown): v is Lang =>
+  typeof v === "string" && (["th", "en", "my", "zh-CN"] as const).includes(v as Lang);
+
 export default function LangSwitch({ className = "" }: { className?: string }) {
   const [open, setOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
-  const [current, setCurrent] = useState<Lang>("th"); // ← คงที่เสมอระหว่าง SSR
+  const [current, setCurrent] = useState<Lang>("th");
   const ref = useRef<HTMLDivElement>(null);
 
-  // อ่าน localStorage หลัง mount เท่านั้น (กัน hydration mismatch)
   useEffect(() => {
     setMounted(true);
-    const stored = localStorage.getItem("app-lang") as Lang | null;
-    if (stored === "th" || stored === "en") setCurrent(stored);
+    const stored = localStorage.getItem("app-lang");
+    if (isLang(stored)) setCurrent(stored);
   }, []);
 
-  // ปิดเมนูเมื่อคลิกนอกกรอบ
   useEffect(() => {
     const onClick = (e: MouseEvent) => {
       if (!ref.current) return;
@@ -51,11 +67,10 @@ export default function LangSwitch({ className = "" }: { className?: string }) {
     return () => window.removeEventListener("click", onClick);
   }, []);
 
-  // ฟัง event สลับภาษาจากจุดอื่น ๆ
   useEffect(() => {
     const on = (e: Event) => {
-      const detail = (e as CustomEvent<Lang>).detail;
-      if (detail === "th" || detail === "en") setCurrent(detail);
+      const d = (e as CustomEvent<Lang>).detail;
+      if (isLang(d)) setCurrent(d);
     };
     window.addEventListener("app:lang", on as EventListener);
     return () => window.removeEventListener("app:lang", on as EventListener);
@@ -65,14 +80,12 @@ export default function LangSwitch({ className = "" }: { className?: string }) {
 
   return (
     <div ref={ref} className={`relative ${className}`}>
-      {/* ปุ่มหลัก */}
       <button
         onClick={() => setOpen(v => !v)}
         className="rounded-xl px-3 py-2 bg-[var(--input)] text-[var(--text)] flex items-center gap-2 hover:brightness-110"
         aria-haspopup="listbox"
         aria-expanded={open}
       >
-        {/* suppressHydrationWarning กันข้อความไม่ตรงชั่วคราวตอน mount */}
         <span className="text-base leading-none" suppressHydrationWarning>
           {mounted ? active.flag : "🌐"}
         </span>
@@ -87,7 +100,7 @@ export default function LangSwitch({ className = "" }: { className?: string }) {
       {open && (
         <ul
           role="listbox"
-          className="absolute right-0 mt-2 w-40 rounded-xl overflow-hidden shadow-xl border border-[var(--border)] bg-[var(--panel)] z-50"
+          className="absolute right-0 mt-2 w-48 rounded-xl overflow-hidden shadow-xl border border-[var(--border)] bg-[var(--panel)] z-50"
         >
           {LANGS.map((l) => (
             <li key={l.code}>

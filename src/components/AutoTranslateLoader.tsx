@@ -9,10 +9,16 @@ export default function AutoTranslateLoader() {
     (window as any).googleTranslateElementInit = () => {
       // eslint-disable-next-line no-new
       new (window as any).google.translate.TranslateElement(
-        { pageLanguage: "auto", includedLanguages: "th,en", autoDisplay: false },
+        {
+          pageLanguage: "auto",
+          // 👇 เพิ่มภาษาที่อยากให้เลือกได้
+          includedLanguages: "th,en,my,zh-CN,zh-TW",
+          autoDisplay: false,
+        },
         "google_translate_element"
       );
-      // ล้าง banner/offset ที่ Google ใส่
+
+      // ซ่อน banner แปลของ Google
       const hide = () => {
         const b1 = document.querySelector<HTMLIFrameElement>("iframe.goog-te-banner-frame");
         const w1 = document.querySelector<HTMLElement>(".skiptranslate");
@@ -23,7 +29,7 @@ export default function AutoTranslateLoader() {
         document.body.style.position = "static";
       };
       hide();
-      setTimeout(hide, 100);  // กันเคสที่ Google ปรับซ้ำ
+      setTimeout(hide, 100);
       window.addEventListener("resize", hide);
     };
 
@@ -31,11 +37,13 @@ export default function AutoTranslateLoader() {
     s.src = "//translate.google.com/translate_a/element.js?cb=googleTranslateElementInit";
     s.async = true;
     document.body.appendChild(s);
+
     return () => {
       s.remove();
       window.removeEventListener("resize", () => {});
     };
   }, []);
 
-  return <div id="google_translate_element" />;
+  // ถ้าไม่อยากให้เห็น widget จริง ก็ซ่อนไว้ได้เลย
+  return <div id="google_translate_element" style={{ display: "none" }} />;
 }

@@ -1,19 +1,29 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import LeaveHistoryModal, {
   LeaveHistoryItem,
 } from "@/components/LeaveHistoryModal";
 
-type LeaveType =
-  | "Annual Leave"
-  | "Sick Leave"
-  | "Leave without pay"
-  | "Maternity / Cremation / Military / Marriage Leave"
-  | "Shift Change"
-  | "Holiday Change"
-  | "OT";
+type LeaveKind =
+  | "ANNUAL" | "SICK" | "BUSINESS" | "UNPAID"
+  | "BIRTHDAY" | "ORDAIN" | "MATERNITY"
+  | "SHIFT_CHANGE" | "HOLIDAY_CHANGE" | "OT";
+
+// รายการปุ่มที่จะแสดงใน UI
+const LEAVE_TYPES: Array<{ label: string; kind: LeaveKind }> = [
+  { label: "Annual Leave",        kind: "ANNUAL" },
+  { label: "Sick Leave",          kind: "SICK" },
+  { label: "Personal Leave",      kind: "BUSINESS" },  // (= Business)
+  { label: "Leave without Pay",   kind: "UNPAID" },
+  { label: "Birthday Leave",      kind: "BIRTHDAY" },
+  { label: "Monkhood Leave",      kind: "ORDAIN" },
+  { label: "Maternity Leave",     kind: "MATERNITY" },
+  { label: "Shift Change",        kind: "SHIFT_CHANGE" },
+  { label: "Holiday Change",      kind: "HOLIDAY_CHANGE" },
+  { label: "OT",                  kind: "OT" },
+];
 
 type EmployeeForm = {
   Nametitle?: string;
@@ -29,7 +39,7 @@ type EmployeeForm = {
 };
 
 type LeaveForm = {
-  leaveType?: LeaveType;
+  leaveType?: LeaveKind; // ← เดิมเป็น LeaveType ภาษาไทย
   fromDate?: string;
   toDate?: string;
   session?: "Full Day" | "Morning (Half)" | "Afternoon (Half)";
@@ -39,18 +49,41 @@ type LeaveForm = {
   handoverTo?: string;
 };
 
-const DEFAULT_HOLIDAYS: { no: number; name: string; date: string }[] = [
-  { no: 1, name: "New Year", date: "2025-01-01" },
-  { no: 2, name: "Makha Bucha", date: "2025-02-12" },
-  { no: 3, name: "Songkran", date: "2025-04-13" },
-  { no: 4, name: "Labor Day", date: "2025-05-01" },
-  { no: 5, name: "Asarnha Bucha", date: "2025-07-09" },
-  { no: 6, name: "King’s Birthday", date: "2025-07-28" },
-  { no: 7, name: "Mother’s Day", date: "2025-08-12" },
-  { no: 8, name: "Chulalongkorn Day", date: "2025-10-23" },
-  { no: 9, name: "Father’s Day", date: "2025-12-05" },
-  { no: 10, name: "Constitution Day", date: "2025-12-10" },
-];
+type MeResponse = {
+  employee: {
+    empNo: string;
+    email?: string|null;
+    prefix?: string|null;
+    firstName: string;
+    lastName: string;
+    position?: string|null;
+    section?: string|null;
+    department?: string|null;
+    levelP?: string|null;
+    idCard?: string|null;
+    photoUrl?: string|null;
+  };
+    rights: {
+      levelFrom: string | null;
+      entitled: {
+        vacation:number; business:number; sick:number;
+        ordainDays:number; maternity:number; birthday:number; unpaid:number;
+        annualHolidays:number;
+      };
+      used: {
+        vacation:number; business:number; sick:number;
+        ordainDays:number; maternity:number; birthday:number; unpaid:number;
+        annualHolidays:number;
+      };
+      remaining: {
+        vacation:number; business:number; sick:number;
+        ordainDays:number; maternity:number; birthday:number; unpaid:number;
+        annualHolidays:number;
+      };
+    };
+  } | null;
+
+
 
 export default function LeavePage() {
   const router = useRouter();
@@ -113,30 +146,200 @@ const history: LeaveHistoryItem[] = [
     return "";
   }
 
-  async function onSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    const err = validate();
-    if (err) {
-      alert(err);
-      return;
+  function getSessionLabel(s?: LeaveForm["session"]) {
+  return s || "Full Day";
     }
-    if (!agree) {
-      alert("กรุณายืนยันว่าข้อมูลถูกต้อง");
-      return;
+    async function uploadIfAny(file: File | null | undefined) {
+      if (!file) return null;
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await fetch("/api/uploads", { method: "POST", body: fd, credentials: "include" });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j?.error || "อัปโหลดไฟล์ไม่สำเร็จ");
+      return j?.url || j?.data?.url || null;
     }
+
+async function onSubmit(e: React.FormEvent) {
+  e.preventDefault();
+  const err = validate();
+  if (err) return alert(err);
+  if (!agree) return alert("กรุณายืนยันว่าข้อมูลถูกต้อง");
+
+  try {
     setSubmitting(true);
+    const attachmentUrl = await uploadIfAny(leave.attachment ?? null);
 
-    // ยังไม่มี backend: สาธิตการส่งข้อมูล
-    const payload = { employee: emp, leave, totalDays };
-    console.log("submit leave:", payload);
+    const payload = {
+      kind: leave.leaveType,                    // "ANNUAL" | "SICK" | ...
+      startDate: leave.fromDate,
+      endDate: leave.toDate,
+      sessionLabel: getSessionLabel(leave.session), // "Full Day" | "Morning (Half)" | "Afternoon (Half)"
+      reason: leave.reason ?? "",
+      contact: leave.contact ?? "",
+      handoverTo: leave.handoverTo ?? "",
+      attachmentUrl,
+    };
 
-    // mock เสร็จ
-    setTimeout(() => {
-      setSubmitting(false);
-      alert("ส่งคำขอลาสำเร็จ (ตัวอย่าง)");
-      router.push("/dashboard");
-    }, 800);
+    const res = await fetch("/api/leaves", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify(payload),
+    });
+    const json = await res.json();
+    if (!res.ok || !json?.ok) throw new Error(json?.error || "ส่งคำขอลาไม่สำเร็จ");
+
+    alert("ส่งคำขอลาสำเร็จ");
+    router.push("/dashboard");
+  } catch (e: any) {
+    alert(e?.message || "เกิดข้อผิดพลาด");
+  } finally {
+    setSubmitting(false);
   }
+}
+
+  const [allRights, setAllRights] = useState<Array<{level:string; vacation:number; business:number; sick:number}>>([]);
+  const [loadingAllRights, setLoadingAllRights] = useState(false);
+
+  useEffect(() => {
+    const ctrl = new AbortController();
+
+    (async () => {
+      try {
+        setLoadingAllRights(true);
+
+        const res = await fetch(`/api/leave-rights`, {
+          signal: ctrl.signal,
+          cache: "no-store", // กัน cache ตอน dev ด้วย
+        });
+
+        const raw = await res.json();
+        setAllRights(
+          (raw?.data || []).map((r: any) => ({
+            level: r.level,
+            vacation: r.vacation,
+            business: r.business,
+            sick: r.sick,
+          }))
+        );
+      } catch (e: any) {
+        // 👇 เพิ่มเช็คนี้
+        if (e?.name === "AbortError") return;
+        console.error(e);
+        setAllRights([]);
+      } finally {
+        setLoadingAllRights(false);
+      }
+    })();
+    // ✅ cleanup ปลอดภัย ไม่โยน warning
+    return () => {
+      if (!ctrl.signal.aborted) ctrl.abort();
+    };
+  }, []);
+
+  const [holidays, setHolidays] = useState<Array<{ id: number; title: string; date: string; note?: string | null }>>([]);
+  const [loadingHolidays, setLoadingHolidays] = useState(false);
+  const [holidaysError, setHolidaysError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const ctrl = new AbortController();
+
+    (async () => {
+      try {
+        setLoadingHolidays(true);
+        setHolidaysError(null);
+
+        const res = await fetch(`/api/holidays`, {
+          signal: ctrl.signal,
+          cache: "no-store",
+          credentials: "include",
+        });
+
+        if (!res.ok) {
+          setHolidays([]);
+          setHolidaysError(`โหลดวันหยุดไม่สำเร็จ (${res.status})`);
+          return;
+        }
+
+        const raw = await res.json();
+        const list = (Array.isArray(raw) ? raw : raw?.data) || [];
+
+        setHolidays(
+          list.map((h: any) => ({
+            id: h.id,
+            title: h.title,
+            date: h.date,
+            note: h.note ?? null,
+          }))
+        );
+      } catch (e: any) {
+        // ⬇️ ถ้าถูกยกเลิกเอง ไม่ต้อง log
+        if (ctrl.signal.aborted || e?.name === "AbortError") return;
+        console.error(e);
+        setHolidays([]);
+        setHolidaysError(e?.message || "เกิดข้อผิดพลาดในการโหลดวันหยุด");
+      } finally {
+        setLoadingHolidays(false);
+      }
+    })();
+
+    // ✅ cleanup: ไม่ส่ง reason จะไม่เด้ง "unmounted"
+    return () => {
+      if (!ctrl.signal.aborted) ctrl.abort();
+    };
+  }, []);
+
+  const [me, setMe] = useState<MeResponse>(null);
+const [loadingMe, setLoadingMe] = useState(false);
+const [meError, setMeError] = useState<string|null>(null);
+
+useEffect(() => {
+  const ctrl = new AbortController();
+  (async () => {
+    try {
+      setLoadingMe(true);
+      setMeError(null);
+      const res = await fetch("/api/employees/me", {
+        signal: ctrl.signal,
+        credentials: "include",
+        cache: "no-store",
+      });
+      if (!res.ok) {
+        setMe(null);
+        setMeError(`โหลดข้อมูลพนักงานไม่สำเร็จ (${res.status})`);
+        return;
+      }
+      const raw = await res.json();
+      console.log("ME API ->", raw);
+
+      // เซ็ตฟอร์มพนักงานให้พร้อมกรอกลา (คงโครงสร้างเดิมของคุณ)
+      setEmp(s => ({
+      ...s,
+      Nametitle: raw.employee.prefix ?? s.Nametitle ?? "",
+      empNo:     raw.employee.empNo   ?? s.empNo     ?? "",
+      name:      `${raw.employee.firstName ?? ""} ${raw.employee.lastName ?? ""}`.trim(),
+      position:  raw.employee.position  ?? s.position   ?? "",
+      section:   raw.employee.section   ?? s.section    ?? "",   // <-- section
+      department:raw.employee.department?? s.department ?? "",
+      LevelP:    raw.employee.levelP    ?? s.LevelP     ?? "",
+      email:     raw.employee.email     ?? s.email,
+      idCard:    raw.employee.idCard    ?? s.idCard,
+      photoUrl:  raw.employee.photoUrl  ?? s.photoUrl,
+    }));
+
+      setMe(raw);
+    } catch (e: any) {
+      if (ctrl.signal.aborted || e?.name === "AbortError") return;
+      console.error(e);
+      setMe(null);
+      setMeError(e?.message || "เกิดข้อผิดพลาด");
+    } finally {
+      setLoadingMe(false);
+    }
+  })();
+  return () => { if (!ctrl.signal.aborted) ctrl.abort(); };
+}, []);
+
 
   return (
     <main className="min-h-dvh bg-[var(--bg)] text-[var(--text)]">
@@ -161,53 +364,42 @@ const history: LeaveHistoryItem[] = [
         <section className="lg:col-span-2 space-y-6">
           {/* ข้อมูลพนักงาน */}
           <div className="neon-card rounded-2xl p-5">
-            <h2 className="neon-title mb-3 text-lg font-semibold">
-              ข้อมูลพนักงาน
-            </h2>
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="neon-title text-lg font-semibold">ข้อมูลพนักงาน</h2>
+            </div>
+
             <div className="grid gap-3 md:grid-cols-2">
-              <Input
-                label="คำนำหน้าชื่อ"
-                value={emp.Nametitle ?? ""}
-                onChange={(v) => onChangeEmp("Nametitle", v)}
-              />
+              <Input label="รหัสพนักงาน (EMP No.)" value={emp.empNo ?? ""} readOnly />
               <Input
                 label="วันที่ยื่น (Auto)"
-                value={new Date().toLocaleDateString()}
+                value={new Date().toLocaleDateString("th-TH")}
                 readOnly
               />
-              <Input
-                required
-                label="รหัสพนักงาน (EMP No.)"
-                value={emp.empNo ?? ""}
-                onChange={(v) => onChangeEmp("empNo", v)}
-              />
-              <Input
-                required
-                label="ชื่อ - สกุล"
-                value={emp.name ?? ""}
-                onChange={(v) => onChangeEmp("name", v)}
-              />
-              <Input
-                label="ตำแหน่ง"
-                value={emp.position ?? ""}
-                onChange={(v) => onChangeEmp("position", v)}
-              />
-              <Input
-                label="Section"
-                value={emp.section ?? ""}
-                onChange={(v) => onChangeEmp("section", v)}
-              />
-              <Input
-                label="Department"
-                value={emp.department ?? ""}
-                onChange={(v) => onChangeEmp("department", v)}
-              />
-              <Input
-                label="Level P"
-                value={emp.LevelP ?? ""}
-                onChange={(v) => onChangeEmp("LevelP", v)}
-              />
+
+              {/* ✅ เพิ่มคำนำหน้าชื่อ */}
+              <Input label="คำนำหน้าชื่อ" value={emp.Nametitle ?? ""} readOnly />
+              <Input label="ชื่อ - สกุล" value={emp.name ?? ""} readOnly />
+
+              <Input label="Email" value={emp.email ?? ""} readOnly />
+              <Input label="เลขบัตรประชาชน" value={emp.idCard ?? ""} readOnly />
+
+              <Input label="ตำแหน่ง" value={emp.position ?? ""} readOnly />
+              <Input label="Department" value={emp.department ?? ""} readOnly />
+
+              <Input label="Section" value={emp.section ?? ""} readOnly />
+              <Input label="Level P" value={emp.LevelP ?? ""} readOnly />
+
+              {/* ถ้ามีรูปภาพ */}
+              {/* <img
+                src={emp.photoUrl ?? ""}
+                alt="Employee Photo"
+                className="h-16 w-16 rounded-lg object-cover border border-white/10"
+              /> */}
             </div>
+
+            {meError && (
+              <p className="text-xs text-red-400 mt-2">{meError}</p>
+            )}
           </div>
 
           {/* ประเภทการลา */}
@@ -216,35 +408,19 @@ const history: LeaveHistoryItem[] = [
               ประเภทการลา
             </h2>
             <div className="grid gap-3 md:grid-cols-2">
-              {(
-                [
-                  "Public Holidays",
-                  "Annual Leave",
-                  "Sick Leave",
-                  "Personal Leave",
-                  "Relygious Leave",
-                  "Monkhood Leave",
-                  "Haji Leave",
-                  "Birthday Leave",
-                  "Leave without Pay",
-                ] as LeaveType[]
-              ).map((t) => (
-                <label
-                  key={t}
+              {LEAVE_TYPES.map((t) => (
+                <label key={t.kind}
                   className={`rounded-xl border border-white/10 p-3 cursor-pointer transition ${
-                    leave.leaveType === t
-                      ? "bg-[var(--input)] ring-2 ring-[var(--cyan)]"
-                      : "bg-transparent hover:bg-white/5"
-                  }`}
-                >
+                    leave.leaveType === t.kind ? "bg-[var(--input)] ring-2 ring-[var(--cyan)]" : "bg-transparent hover:bg-white/5"
+                  }`}>
                   <input
                     type="radio"
                     name="leaveType"
                     className="mr-2 accent-[var(--cyan)]"
-                    checked={leave.leaveType === t}
-                    onChange={() => onChangeLeave("leaveType", t)}
+                    checked={leave.leaveType === t.kind}
+                    onChange={() => onChangeLeave("leaveType", t.kind)}
                   />
-                  {t}
+                  {t.label}
                 </label>
               ))}
             </div>
@@ -365,12 +541,12 @@ const history: LeaveHistoryItem[] = [
                 ยกเลิก
               </button>
               <button
-                type="submit"
-                disabled={submitting}
-                className="rounded-xl px-5 py-2 font-semibold bg-[var(--cyan)] text-[#001418] shadow-[0_10px_28px_var(--cyan-soft)] disabled:opacity-50"
-              >
-                {submitting ? "กำลังส่ง..." : "ส่งคำขอลา"}
-              </button>
+                  type="submit"
+                  disabled={submitting || !leave.leaveType}   // 👈 เพิ่มเงื่อนไขนี้
+                  className="rounded-xl px-5 py-2 font-semibold bg-[var(--cyan)] text-[#001418] shadow-[0_10px_28px_var(--cyan-soft)] disabled:opacity-50"
+                >
+                  {submitting ? "กำลังส่ง..." : "ส่งคำขอลา"}
+                </button>
             </div>
           </form>
         </section>
@@ -378,61 +554,108 @@ const history: LeaveHistoryItem[] = [
         {/* ฝั่งขวา: สิทธิวันลา + วันหยุดประจำปี */}
         <aside className="space-y-6">
           <div className="neon-card rounded-2xl p-5">
-            <h2 className="neon-title mb-3 text-lg font-semibold">
-              สิทธิวันลา (ตามตำแหน่ง)
-            </h2>
-            <ul className="space-y-2 text-sm">
-              <li className="flex items-center justify-between rounded-xl bg-[var(--input)] px-3 py-2">
-                <span>Annual Leave</span>
-                <b>10 วัน/ปี</b>
-              </li>
-              <li className="flex items-center justify-between rounded-xl bg-[var(--input)] px-3 py-2">
-                <span>Sick Leave</span>
-                <b>30 วัน/ปี</b>
-              </li>
-              <li className="flex items-center justify-between rounded-xl bg-[var(--input)] px-3 py-2">
-                <span>Leave without pay</span>
-                <b>ตามอนุมัติ</b>
-              </li>
-              <li className="flex items-center justify-between rounded-xl bg-[var(--input)] px-3 py-2">
-                <span>Special Leave</span>
-                <b>ตามระเบียบ HR</b>
-              </li>
-            </ul>
+            <h2 className="neon-title mb-3 text-lg font-semibold">สิทธิวันลา (ทุกระดับ)</h2>
+            {loadingAllRights ? (
+              <p className="text-sm text-[var(--muted)]">กำลังโหลด...</p>
+            ) : allRights.length === 0 ? (
+              <p className="text-sm text-[var(--muted)]">ไม่มีข้อมูล</p>
+            ) : (
+              <div className="overflow-auto rounded-xl border border-white/10">
+                <table className="w-full text-sm">
+                  <thead className="bg-white/5">
+                    <tr>
+                      <th className="px-3 py-2 text-left">Level</th>
+                      <th className="px-3 py-2 text-right">Annual</th>
+                      <th className="px-3 py-2 text-right">Business</th>
+                      <th className="px-3 py-2 text-right">Sick</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {allRights.map((r) => (
+                      <tr key={r.level} className="odd:bg-white/0 even:bg-white/5">
+                        <td className="px-3 py-2">{r.level}</td>
+                        <td className="px-3 py-2 text-center">{r.vacation}</td>
+                        <td className="px-3 py-2 text-center">{r.business}</td>
+                        <td className="px-3 py-2 text-center">{r.sick}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )} 
           </div>
+          {me && (
+              <div className="neon-card rounded-2xl p-5">
+                <h2 className="neon-title mb-3 text-lg font-semibold">
+                  สิทธิวันลาของฉัน (ปี {new Date().getFullYear() + 543})
+                </h2>
+
+                <div className="grid gap-3 md:grid-cols-3">
+                  <EntBox title="Sick"            data={me.rights} k="sick" />
+                  <EntBox title="Business"        data={me.rights} k="business" />
+                  <EntBox title="Annual"          data={me.rights} k="vacation" />
+                  <EntBox title="Holidays"        data={me.rights} k="annualHolidays" />
+                  <EntBox title="Unpaid"          data={me.rights} k="unpaid" />
+                  <EntBox title="Birthday"        data={me.rights} k="birthday" />
+                  <EntBox title="Ordain"          data={me.rights} k="ordainDays" />
+                  <EntBox title="Maternity"       data={me.rights} k="maternity" />
+                </div>
+
+                {me.rights.levelFrom && (
+                  <p className="mt-2 text-xs text-[var(--muted)]">
+                    อิงสิทธิ์จากระดับ (Level P): <b>{me.rights.levelFrom}</b>
+                  </p>
+                )}
+              </div>
+            )}
 
           <div className="neon-card rounded-2xl p-5">
             <h2 className="neon-title mb-3 text-lg font-semibold">
               วันหยุดประจำปี (Public Holidays)
             </h2>
-            <div className="max-h-[360px] overflow-auto rounded-xl border border-white/10">
-              <table className="w-full text-sm">
-                <thead className="bg-white/5">
-                  <tr>
-                    <th className="px-3 py-2 text-left w-12">#</th>
-                    <th className="px-3 py-2 text-left">ชื่อวันหยุด</th>
-                    <th className="px-3 py-2 text-left">วันที่</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {DEFAULT_HOLIDAYS.map((h) => (
-                    <tr key={h.no} className="odd:bg-white/0 even:bg-white/5">
-                      <td className="px-3 py-2">{h.no}</td>
-                      <td className="px-3 py-2">{h.name}</td>
-                      <td className="px-3 py-2">
-                        {new Date(h.date).toLocaleDateString("en-US", {
-                          year: "numeric",
-                          month: "numeric",
-                          day: "numeric",
-                        })}
-                      </td>
+
+            {loadingHolidays ? (
+              <p className="text-sm text-[var(--muted)]">กำลังโหลดวันหยุด...</p>
+            ) : holidaysError ? (
+              <p className="text-sm text-red-400">{holidaysError}</p>
+            ) : holidays.length === 0 ? (
+              <p className="text-sm text-[var(--muted)]">ยังไม่มีข้อมูลวันหยุด</p>
+            ) : (
+              <div className="max-h-[360px] overflow-auto rounded-xl border border-white/10">
+                <table className="w-full text-sm">
+                  <thead className="bg-white/5">
+                    <tr>
+                      <th className="px-3 py-2 text-left w-12">#</th>
+                      <th className="px-3 py-2 text-left">ชื่อวันหยุด</th>
+                      <th className="px-3 py-2 text-left">วันที่</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody>
+                    {holidays.map((h, idx) => (
+                      <tr key={h.id} className="odd:bg-white/0 even:bg-white/5">
+                        <td className="px-3 py-2">{idx + 1}</td>
+                        <td className="px-3 py-2">
+                          {h.title}
+                        </td>
+                        <td className="px-3 py-2">
+                          {(() => {
+                            const d = new Date(h.date);
+                            if (isNaN(+d)) return h.date; // ถ้า parse ไม่ได้ ให้โชว์ข้อมูลดิบไปก่อน
+                            const day = d.getDate().toString().padStart(2, "0");
+                            const month = (d.getMonth() + 1).toString().padStart(2, "0");
+                            const year = d.getFullYear() + 543; // แปลงเป็น พ.ศ.
+                            return `${day}/${month}/${year}`;
+                          })()}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
             <p className="mt-2 text-xs text-[var(--muted)]">
-              * รายการวันหยุดเป็นตัวอย่าง สามารถดึงจากฐานข้อมูลจริงได้ภายหลัง
+              * ข้อมูลดึงจากฐานข้อมูลจริง (Holiday)
             </p>
           </div>
         </aside>
@@ -481,3 +704,60 @@ function Input({
     </label>
   );
 }
+  function EntBox({
+    title,
+    data,
+    k,
+  }: {
+    title: string;
+    data: {
+      entitled:  {
+        vacation:number; business:number; sick:number;
+        ordainDays:number; maternity:number; birthday:number; unpaid:number;
+        annualHolidays:number;
+      };
+      used:      {
+        vacation:number; business:number; sick:number;
+        ordainDays:number; maternity:number; birthday:number; unpaid:number;
+        annualHolidays:number;
+      };
+      remaining: {
+        vacation:number; business:number; sick:number;
+        ordainDays:number; maternity:number; birthday:number; unpaid:number;
+        annualHolidays:number;
+      };
+    };
+    k:
+      | "vacation"
+      | "business"
+      | "sick"
+      | "ordainDays"
+      | "maternity"
+      | "birthday"
+      | "unpaid"
+      | "annualHolidays";
+  }) {
+      const total = data.entitled[k] ?? 0;
+      const used  = data.used[k] ?? 0;
+      const left  = data.remaining[k] ?? Math.max(0, total - used);
+      const pct   = total > 0 ? Math.min(100, Math.round((used / total) * 100)) : 0;
+
+      return (
+        <div className="rounded-xl border border-white/10 p-3">
+          <div className="mb-1 text-sm opacity-80">{title}</div>
+          <div className="flex items-baseline gap-2">
+            <span className="text-2xl font-bold">{left}</span>
+            {/* <span className="text-xs text-[var(--muted)]">เหลือ / ทั้งหมด {total}</span> */}
+          </div>
+          <div className="mt-2 h-2 w-full rounded bg-white/10">
+            <div
+              className="h-2 rounded bg-[var(--cyan)]"
+              style={{ width: `${pct}%` }}
+              aria-label={`${pct}% used`}
+            />
+          </div>
+          <div className="mt-2 text-xs text-[var(--muted)]">ใช้ไป {used}</div>
+        </div>
+      );
+    }
+
