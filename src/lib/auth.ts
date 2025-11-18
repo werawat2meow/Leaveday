@@ -10,15 +10,37 @@ export const authOptions: NextAuthOptions = {
       name: "Credentials",
       credentials: { email: {}, password: {} },
       async authorize(c) {
-        if (!c?.email || !c?.password) return null;
+        // console.log("AUTH DEBUG: start authorize", c); // เปลี่ยนเป็น throw Error แทน
 
-        // 1) ตรวจ user ด้วย email + password
-        const user = await prisma.user.findUnique({ where: { email: c.email } });
-        if (!user) return null;
+        if (!c?.email || !c?.password) {
+          // console.log("AUTH DEBUG: missing email or password");
+          throw new Error("Missing email or password from client."); // โยน Error นี้ออกไป
+          // return null; // ไม่ต้อง return null แล้ว
+        }
+
+        // 1) หา user จาก DB
+        const user = await prisma.user.findUnique({
+          where: { email: c.email },
+        });
+        // console.log("AUTH DEBUG: user from DB =", user);
+
+        if (!user) {
+          // console.log("AUTH DEBUG: user not found");
+          throw new Error("User with this email not found in DB."); // โยน Error นี้ออกไป
+          // return null;
+        }
+
+        // check password
         const ok = await bcrypt.compare(c.password, user.passwordHash);
-        if (!ok) return null;
+        // console.log("AUTH DEBUG: password valid =", ok);
 
-        // 2) ดึง employee เพื่อเอา idCard (หาได้ทั้งจาก userId หรือ email)
+        if (!ok) {
+          // console.log("AUTH DEBUG: password incorrect");
+          throw new Error("Incorrect password provided."); // โยน Error นี้ออกไป
+          // return null;
+        }
+
+        // 2) หา employee เพื่อนำ idCard
         const emp = await prisma.employee.findFirst({
           where: {
             OR: [{ userId: user.id }, { email: user.email }],
@@ -26,35 +48,37 @@ export const authOptions: NextAuthOptions = {
           select: { idCard: true },
         });
 
-        // 3) คืน user object พร้อมข้อมูลที่อยากใส่ใน token
+        // console.log("AUTH DEBUG: employee =", emp);
+
+        // 3) คืนข้อมูล user เพื่อใส่ใน token
         return {
           id: String(user.id),
           email: user.email,
           name: user.name ?? "",
           role: user.role,
-          idCard: emp?.idCard ?? null,  // << สำคัญ
+          idCard: emp?.idCard ?? null,
         } as any;
       },
     }),
   ],
+
   callbacks: {
     async jwt({ token, user }) {
-      // เรียกตอน login ครั้งแรก หรือเมื่อ refresh token
       if (user) {
-        token.sub = (user as any).id;               // เก็บ id ผู้ใช้ไว้ใน token
-        (token as any).role = (user as any).role;   // เก็บ role
-        (token as any).idCard = (user as any).idCard ?? null; // เก็บ idCard
+        token.sub = (user as any).id;
+        (token as any).role = (user as any).role;
+        (token as any).idCard = (user as any).idCard ?? null;
       }
       return token;
     },
     async session({ session, token }) {
-      // map token -> session (ฝั่ง client)
       if (token?.sub) (session.user as any).id = Number(token.sub);
       if ((token as any).idCard) (session.user as any).idCard = (token as any).idCard;
       if ((token as any).role) (session as any).role = (token as any).role;
       return session;
     },
   },
+
   pages: { signIn: "/login" },
   debug: true,
 };
