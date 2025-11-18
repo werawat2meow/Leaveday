@@ -67,24 +67,24 @@ export default function LeaveHistoryModal({
 
             <thead>
               <tr>
-                <th>number</th>
-                <th>Types of leave</th>
-                <th>Leave from date - to date</th>
-                <th>Approver comments</th>
-                <th>Approver</th>
-                <th>Approval results</th>
+                <th className="text-center">number</th>
+                <th className="text-center">Types of leave</th>
+                <th className="text-center">Leave from date - to date</th>
+                <th className="text-center">Approver comments</th>
+                <th className="text-center">Approver</th>
+                <th className="text-center">Approval results</th>
               </tr>
             </thead>
 
             <tbody>
               {items.map((r) => (
                 <tr key={r.no}>
-                  <td className="col-num">{r.no}</td>
-                  <td>{r.type}</td>
-                  <td className="tabular-nums">{r.range}</td>
-                  <td>{r.approverComment}</td>
-                  <td>{r.approver}</td>
-                  <td className="col-status">
+                  <td className="col-num text-center">{r.no}</td>
+                  <td className="text-center">{r.type}</td>
+                  <td className="tabular-nums text-center">{r.range}</td>
+                  <td className="text-center">{r.approverComment}</td>
+                  <td className="text-center">{r.approver}</td>
+                  <td className="col-status text-center">
                     {r.status === "approved" ? (
                       <span
                         className="inline-block rounded-lg px-2 py-1 text-xs font-semibold ring-1

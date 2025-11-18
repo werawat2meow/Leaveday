@@ -142,8 +142,24 @@ const approved = await prisma.leave.findMany({
   const used: Entitlement = {
     vacation: 0, business: 0, sick: 0,
     ordainDays: 0, maternity: 0, birthday: 0, unpaid: 0,
-    annualHolidays: 0, // 🟢 ไม่ใช่ใบลา
+    annualHolidays: 0,
   };
+
+  for (const l of approved) {
+    // ใช้ l.kind (เช่น "ANNUAL", "SICK", "BUSINESS", ฯลฯ)
+    // ใช้ l.requestedDays ถ้ามี หรือคำนวณจาก startDate/endDate
+    let days = typeof l.requestedDays === "number" ? l.requestedDays : dayDiffInclusive(new Date(l.startDate), new Date(l.endDate));
+    switch (l.kind) {
+      case "ANNUAL":      used.vacation    += days; break;
+      case "SICK":        used.sick        += days; break;
+      case "BUSINESS":    used.business    += days; break;
+      case "UNPAID":      used.unpaid      += days; break;
+      case "BIRTHDAY":    used.birthday    += days; break;
+      case "ORDAIN":      used.ordainDays  += days; break;
+      case "MATERNITY":   used.maternity   += days; break;
+      // เพิ่มประเภทอื่น ๆ ตาม schema
+    }
+  }
 
   const remaining: Entitlement = {
     vacation:        Math.max(0, entitled.vacation   - used.vacation),

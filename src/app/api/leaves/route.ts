@@ -4,6 +4,25 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { countBusinessDays, normalizeSession } from "@/lib/leave-utils";
 
+export async function GET(req: NextRequest) {
+  const session = await getServerSession(authOptions);
+  if (!session?.user?.email) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+
+  const user = await prisma.user.findUnique({
+    where: { email: session.user.email },
+    include: { employee: true },
+  });
+  if (!user) return NextResponse.json({ error: "no user" }, { status: 400 });
+
+  // ดึงใบลาทั้งหมดของ user
+  const leaves = await prisma.leave.findMany({
+    where: { userId: user.id },
+    orderBy: [{ startDate: "desc" }],
+  });
+
+  return NextResponse.json({ data: leaves });
+}
+
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions);
   if (!session?.user?.email) return NextResponse.json({ error: "unauthorized" }, { status: 401 });

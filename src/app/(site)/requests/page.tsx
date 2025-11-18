@@ -47,7 +47,20 @@ type LeaveForm = {
   attachment?: File | null;
   contact?: string;
   handoverTo?: string;
+  approverId?: number | null;
 };
+
+  type ApproverOption = {
+    id: number;
+    label: string;
+    name: string;
+    empNo: string;
+    department?: string | null;
+    division?: string | null;
+    unit?: string | null;
+    level?: string | null;
+    email?: string | null;
+  };
 
 type MeResponse = {
   employee: {
@@ -86,31 +99,41 @@ type MeResponse = {
 
 
 export default function LeavePage() {
+
   const router = useRouter();
   const [openHistory, setOpenHistory] = useState(false);
+  const [history, setHistory] = useState<LeaveHistoryItem[]>([]);
 
-const history: LeaveHistoryItem[] = [
-    {
-      no: 1,
-      type: "ลาป่วย",
-      range: "11-12 / 09 / 68",
-      from: "2025-09-11",
-      to: "2025-09-12",
-      approverComment: "xxxxxxxxxxxxxxxx",
-      approver: "xxxxxxxxxx",
-      status: "approved",
-    },
-    {
-      no: 2,
-      type: "ลากิจ",
-      range: "11-12 / 09 / 68",
-      from: "2025-09-11",
-      to: "2025-09-12",
-      approverComment: "xxxxxxxxxxxxxxxx",
-      approver: "xxxxxxxxxx",
-      status: "rejected",
-    },
-  ];
+  useEffect(() => {
+    if (!openHistory) return;
+    (async () => {
+      try {
+        const res = await fetch("/api/leaves", { credentials: "include" });
+        const json = await res.json();
+        if (Array.isArray(json.data)) {
+          setHistory(
+            json.data.map((l: any, idx: number) => ({
+              no: idx + 1,
+              type: l.kind,
+              range: `${new Date(l.startDate).toLocaleDateString()} - ${new Date(l.endDate).toLocaleDateString()}`,
+              from: l.startDate,
+              to: l.endDate,
+              approverComment: l.approverComment ?? "",
+              approver: l.approver?.name ?? "",
+              status:
+                l.status === "APPROVED"
+                  ? "approved"
+                  : l.status === "REJECTED"
+                  ? "rejected"
+                  : "pending",
+            }))
+          );
+        }
+      } catch (e) {
+        setHistory([]);
+      }
+    })();
+  }, [openHistory]);
 
   const [emp, setEmp] = useState<EmployeeForm>({
     Nametitle: "นาย",
@@ -289,9 +312,10 @@ async function onSubmit(e: React.FormEvent) {
     };
   }, []);
 
-  const [me, setMe] = useState<MeResponse>(null);
+const [me, setMe] = useState<MeResponse>(null);
 const [loadingMe, setLoadingMe] = useState(false);
 const [meError, setMeError] = useState<string|null>(null);
+
 
 useEffect(() => {
   const ctrl = new AbortController();
@@ -339,6 +363,62 @@ useEffect(() => {
   })();
   return () => { if (!ctrl.signal.aborted) ctrl.abort(); };
 }, []);
+
+  const [approvers, setApprovers] = useState<ApproverOption[]>([]);
+  const [loadingApprovers, setLoadingApprovers] = useState(false);
+  const [approverError, setApproverError] = useState<string | null>(null);
+  
+ useEffect(() => {
+  // ถ้ายังไม่มี me (ยังโหลดข้อมูลพนักงานไม่เสร็จ) ก็ยังไม่ต้องเรียก API นี้
+  if (!me) return;
+
+  const ctrl = new AbortController();
+
+  (async () => {
+    try {
+      setLoadingApprovers(true);
+      setApproverError(null);
+
+      const res = await fetch("/api/approvers/available", {
+        signal: ctrl.signal,
+        credentials: "include",
+      });
+
+      if (!res.ok) {
+        const txt = await res.text().catch(() => "");
+        console.error("Approvers API error:", res.status, txt);
+        setApprovers([]);
+        setApproverError(`โหลดรายชื่อผู้อนุมัติไม่สำเร็จ (${res.status})`);
+        return;
+      }
+
+      const raw = await res.json();
+      const list = (raw?.data || []) as ApproverOption[];
+
+      setApprovers(list);
+
+      // ถ้ายังไม่ได้เลือก approverId และมีรายชื่อ → set default เป็นคนแรก
+      if (!leave.approverId && list.length > 0) {
+        setLeave(s => ({
+          ...s,
+          approverId: list[0].id,
+          handoverTo: list[0].name,   // ชื่อผู้อนุมัติ เผื่อใช้ส่งไปเก็บเป็น text
+        }));
+      }
+    } catch (e: any) {
+      if (ctrl.signal.aborted || e?.name === "AbortError") return;
+      console.error(e);
+      setApprovers([]);
+      setApproverError(e?.message || "เกิดข้อผิดพลาดในการโหลดผู้อนุมัติ");
+    } finally {
+      setLoadingApprovers(false);
+    }
+  })();
+
+  return () => {
+    if (!ctrl.signal.aborted) ctrl.abort();
+  };
+}, [me, leave.approverId]);  // ให้รันเมื่อ me พร้อม หรือ approverId เปลี่ยน
 
 
   return (
@@ -477,11 +557,44 @@ useEffect(() => {
             </div>
 
             <div className="grid gap-3 md:grid-cols-2">
-              <Input
-                label="ผู้อนุมัติ"
-                value={leave.handoverTo ?? ""}
-                onChange={(v) => onChangeLeave("handoverTo", v)}
-              />
+              <label className="block">
+                <span className="mb-1 block text-sm">ผู้อนุมัติ</span>
+
+                {loadingApprovers ? (
+                  <div className="neon-input w-full rounded-xl p-3 text-sm text-[var(--muted)]">
+                    กำลังโหลดรายชื่อผู้อนุมัติ...
+                  </div>
+                ) : approverError ? (
+                  <div className="neon-input w-full rounded-xl p-3 text-sm text-red-400">
+                    {approverError}
+                  </div>
+                ) : approvers.length === 0 ? (
+                  <div className="neon-input w-full rounded-xl p-3 text-sm text-[var(--muted)]">
+                    ไม่พบรายชื่อผู้อนุมัติในสังกัดของคุณ
+                  </div>
+                ) : (
+                  <select
+                    className="neon-input w-full rounded-xl p-3 bg-transparent"
+                    value={leave.approverId ? String(leave.approverId) : ""}
+                    onChange={(e) => {
+                      const id = e.target.value ? Number(e.target.value) : null;
+                      const selected = approvers.find(a => a.id === id) || null;
+                      setLeave(s => ({
+                        ...s,
+                        approverId: id,
+                        handoverTo: selected?.name ?? s.handoverTo,
+                      }));
+                    }}
+                  >
+                    <option value="">-- เลือกผู้อนุมัติ --</option>
+                    {approvers.map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {a.label}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </label>
               <Input
                 label="ช่องทางติดต่อระหว่างลา"
                 value={leave.contact ?? ""}
