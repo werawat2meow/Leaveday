@@ -101,6 +101,9 @@ export default function ProfileSettingsPage() {
     lastName: "",
   });
   const [saving, setSaving] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const importInputRef = useRef<HTMLInputElement>(null);
   const setF = (patch: Partial<EmployeeForm>) => setForm(prev => ({ ...prev, ...patch }));
 
   // ✅ เมื่อเลือกจากโมดัล → กรอกฟอร์มครบทุกฟิลด์
@@ -172,6 +175,50 @@ function handlePickEmployee(e: Employee) {
   }
 }
 
+  async function handleImportExcel() {
+    if (!importFile) {
+      alert("กรุณาเลือกไฟล์ Excel ก่อน");
+      return;
+    }
+
+    setImporting(true);
+    try {
+      const formdata = new FormData();
+      formdata.append("file", importFile);
+
+      const res = await fetch("/api/employees/import", {
+        method: "POST",
+        body: formdata,
+      });
+
+      const result = await res.json();
+      if (!res.ok) {
+        alert(result?.error ?? "Import ไม่สำเร็จ");
+        return;
+      }
+
+      alert(`Import สำเร็จ! เพิ่มพนักงาน ${result.success} คน`);
+      setImportFile(null);
+      if (importInputRef.current) importInputRef.current.value = "";
+    } catch (e) {
+      console.error("[IMPORT_ERROR]", e);
+      alert("เกิดข้อผิดพลาดในการ Import");
+    } finally {
+      setImporting(false);
+    }
+  }
+
+  function handleImportFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.name.match(/\.(xlsx|xls)$/)) {
+      alert("กรุณาเลือกไฟล์ Excel (.xlsx หรือ .xls)");
+      return;
+    }
+    setImportFile(file);
+  }
+
   function resetForm() {
     setForm({
       id: null,
@@ -242,13 +289,40 @@ function handlePickEmployee(e: Employee) {
     <section role="tabpanel" aria-label="เพิ่มข้อมูล" className="neon-card rounded-2xl p-4 sm:p-6">
       <div className="mb-4 flex items-center justify-between gap-3">
         <h2 className="neon-title text-base sm:text-lg font-semibold mb-4">เพิ่มข้อมูล</h2>
-        <button
-          type="button"
-          className="neon-title rounded-xl px-4 py-2 border border-slate-300 hover:bg-slate-50 dark:border-white/10 dark:hover:bg-white/5 cursor-pointer"
-          onClick={() => setOpenEmpModal(true)}
-        >
-          รายชื่อพนักงาน
-        </button>
+        <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2">
+            <input type="file"
+              ref={importInputRef}
+              accept=".xlsx,.xls"
+              className="hidden"
+              onChange={handleImportFileChange}
+            />
+            <button
+              type="button"
+              className="neon-title rounded-xl px-4 py-2 border border-green-500 hover:bg-green-50 dark:border-green-400 dark:hover:bg-green-500/10 cursor-pointer text-sm"
+              onClick={() => importInputRef.current?.click()}
+            >
+              เลือกไฟล์ Excel
+            </button>
+            {importFile && (
+              <button
+                type="button"
+                className="neon-title rounded-xl px-4 py-2 bg-green-600 text-white hover:bg-green-700 cursor-pointer text-sm"
+                onClick={handleImportExcel}
+                disabled={importing}
+              >
+                {importing ? "กำลัง Import..." : `Import ${importFile.name}`}
+              </button>
+            )}
+          </div>
+          <button
+              type="button"
+              className="neon-title rounded-xl px-4 py-2 border border-slate-300 hover:bg-slate-50 dark:border-white/10 dark:hover:bg-white/5 cursor-pointer"
+              onClick={() => setOpenEmpModal(true)}
+            >
+              รายชื่อพนักงาน
+          </button>
+        </div>
       </div>
 
       {/* layout: ซ้ายรูป / ขวาฟอร์ม */}

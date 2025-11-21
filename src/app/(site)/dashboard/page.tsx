@@ -10,9 +10,9 @@ const COLORS = ["#08f7fe", "#ff4d6d", "#7cffcb", "#fce94f", "#a78bfa"];
 // สีเฉพาะสำหรับสถานะ
 const getStatusColor = (status: string) => {
   switch (status) {
-    case 'อนุมัติ': return '#22c55e';      // เขียว
-    case 'รออนุมัติ': return '#ef4444';   // แดง  
-    case 'ไม่อนุมัติ': return '#6b7280';  // เทา
+    case 'รออนุมัติ': return '#fbbf24';   // ส้ม (orange-500)
+    case 'อนุมัติ': return '#22c55e';      // เขียว (green-500) 
+    case 'ไม่อนุมัติ': return '#ef4444';  // แดง (red-500)
     default: return '#8b5cf6';            // ม่วง (default)
   }
 };
