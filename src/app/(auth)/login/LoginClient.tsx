@@ -66,11 +66,20 @@ export default function LoginClient() {
   };
 
   return (
-    <main className="min-h-dvh flex justify-center items-start pt-20 px-4">
-      <div className="flex flex-col items-center gap-4 w-full max-w-xl">
+    <main className="min-h-dvh flex justify-center items-center px-4 relative overflow-hidden">
+      <img
+        src="/cover-005.jpg"
+        alt="Background"
+        className="absolute inset-0 w-full h-full object-cover opacity-25 pointer-events-none select-none"
+        style={{ zIndex: 0 }}
+      />
+      <div className="flex flex-col items-center gap-4 w-full max-w-xl relative z-10">
         <section className="neon-card w-full rounded-2xl p-7 text-center">
-          <h1 className="neon-title text-2xl font-bold mb-4">Login</h1>
-
+          <img
+          src="/HRM-w.gif"
+          alt="HR Logo"
+          className="mx-auto w-80 object-contain"
+        />
           <form onSubmit={onSubmit} className="grid gap-4 text-left">
             <label className="block">
               <span className="sr-only">Email</span>
@@ -92,7 +101,7 @@ export default function LoginClient() {
                 id="pw"
                 type="password"
                 placeholder="Password"
-                className="neon-input w-full rounded-xl px-4 py-3 outline-none"
+                className="neon-input w-full rounded-xl px-4 py-3 outline-none mt-3"
                 value={pw}
                 onChange={(e) => setPw(e.target.value)}
                 required
@@ -103,7 +112,7 @@ export default function LoginClient() {
             <button
               type="submit"
               disabled={loading}
-              className="neon-cta mt-1 w-fit mx-auto rounded-xl px-5 py-3 font-extrabold active:translate-y-[1px] disabled:opacity-60"
+              className="neon-cta mt-10 mb-10 w-fit mx-auto rounded-xl px-5 py-3 font-extrabold active:translate-y-[1px] disabled:opacity-60"
             >
               {loading ? "กำลังเข้าสู่ระบบ..." : "Login"}
             </button>
