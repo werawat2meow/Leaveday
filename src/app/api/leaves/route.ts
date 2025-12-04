@@ -4,18 +4,32 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { countBusinessDays, normalizeSession } from "@/lib/leave-utils";
 
-export async function GET() {
+export async function GET(req: Request) {
   try {
     const session = await getServerSession(authOptions);
     if (!session?.user?.email) {
       return NextResponse.json({ error: "unauthorized" }, { status: 401 });
     }
 
-    // ดึงข้อมูล leaves (ไม่ include User)
+    // รับ department จาก query param (เช่น /api/leaves?department=xxx)
+    const { searchParams } = new URL(req.url);
+    const department = searchParams.get('department');
+
+    let whereCondition: any = {};
+    if (department) {
+      // ถ้ามี department param ให้ filter leave ของทุกคนในแผนกนั้น
+      whereCondition.user = {
+        employee: {
+          department: department
+        }
+      };
+    } else {
+      // ถ้าไม่มี department param ให้ filter leave ของ user ที่ login อยู่
+      whereCondition.user = { email: session.user.email };
+    }
+
     const leaves = await prisma.leave.findMany({
-      where: {
-        user: { email: session.user.email }
-      },
+      where: whereCondition,
       orderBy: { createdAt: 'desc' }
     });
 
@@ -50,6 +64,8 @@ export async function GET() {
       endDate: leave.endDate,
       status: leave.status,
       reason: leave.reason,
+      requestedDays: leave.requestedDays,
+      handoverTo: leave.handoverTo,
       approverComment: leave.approverReason ?? "",
       approver: {
         name: leave.approverId 
@@ -80,6 +96,13 @@ export async function POST(req: NextRequest) {
   });
   if (!user?.employee) return NextResponse.json({ error: "no employee profile" }, { status: 400 });
 
+  if (kind === "ANNUAL") {
+    const startDate = user.employee.startDate;
+    if (!startDate || (new Date().getTime() - new Date(startDate).getTime()) < 365 * 24 * 60 * 60 * 1000) {
+      return NextResponse.json({ error: "อายุงานยังไม่ครบ 1 ปี จึงยังไม่สามารถลาพักร้อนได้" }, { status: 400 });
+    }
+  }
+
   const start = new Date(startDate);
   const end   = new Date(endDate);
   const sNorm = normalizeSession(sessionLabel);
@@ -90,7 +113,7 @@ export async function POST(req: NextRequest) {
     select: { date: true },
   });
   const setH = new Set(holidays.map(h => h.date.toISOString().slice(0,10)));
-  const requestedDays = countBusinessDays(start, end, sNorm, setH);
+  const requestedDays = countBusinessDays(start, end, sNorm, setH, user.employee.weeklyHoliday ?? undefined);
   if (requestedDays <= 0) return NextResponse.json({ error: "ช่วงวันไม่ใช่วันทำการ" }, { status: 400 });
 
   // กันซ้อน
@@ -104,17 +127,21 @@ export async function POST(req: NextRequest) {
   if (overlap) return NextResponse.json({ error: "วันที่ลาซ้อนคำขอเดิม" }, { status: 400 });
 
   // เช็คสิทธิ์จาก Employee ของปีนี้ (ชนิดที่ตัดสิทธิ์เท่านั้น)
+  const rights = await prisma.leaveRights.findFirst({
+    where: { employeeId: user.employee.id, year },
+  });
+
   const entitled = (() => {
     switch (kind as string) {
-      case "ANNUAL": return user.employee.vacationDays;
-      case "BUSINESS": return user.employee.businessDays;
-      case "SICK": return user.employee.sickDays;
-      case "BIRTHDAY": return user.employee.birthdayDays;
-      case "ORDAIN": return user.employee.ordainDays;
-      case "MATERNITY": return user.employee.maternityDays;
-      case "UNPAID": return user.employee.unpaidDays;
-      case "ANNUAL_HOLIDAY": return user.employee.annualHolidays; // ลาโดยใช้วันหยุดประจำปี
-      default: return 0; // ไม่ตัดสิทธิ์
+      case "ANNUAL": return (rights?.vacationLeave ?? rights?.annualLeave ?? 0) + (rights?.carryForwardAnnual ?? 0);
+      case "BUSINESS": return rights?.businessLeave ?? 0;
+      case "SICK": return rights?.sickLeave ?? 0;
+      case "BIRTHDAY": return rights?.birthdayLeave ?? 0;
+      case "ORDAIN": return rights?.ordainLeave ?? 0;
+      case "MATERNITY": return rights?.maternityLeave ?? 0;
+      case "UNPAID": return rights?.unpaidLeave ?? 0;
+      case "ANNUAL_HOLIDAY": return (rights?.holidayLeave ?? 0) + (rights?.carryForwardHoliday ?? 0);
+      default: return 0;
     }
   })();
   const isQuotaKind = ["ANNUAL","BUSINESS","SICK","BIRTHDAY","ORDAIN","MATERNITY","UNPAID","ANNUAL_HOLIDAY"].includes(kind);

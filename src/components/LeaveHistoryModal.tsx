@@ -10,6 +10,7 @@ export type LeaveHistoryItem = {
   approverComment: string;
   approver: string;
   status: "approved" | "rejected" | "pending";
+  days?: number;
 };
 
 export default function LeaveHistoryModal({
@@ -48,7 +49,7 @@ export default function LeaveHistoryModal({
     >
       {/* stop close when click card */}
       <div
-        className="w-[96vw] max-w-5xl neon-card rounded-2xl p-6"
+        className="w-[96vw] max-w-5xl neon-card rounded-2xl p-4 sm:p-6 max-h-[90vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between mb-4">
@@ -69,43 +70,75 @@ export default function LeaveHistoryModal({
             <p className="text-sm">เมื่อคุณแจ้งลาแล้ว ประวัติจะแสดงที่นี่</p>
           </div>
         ) : (
-          <div className="overflow-auto rounded-xl border border-white/10">
-            <table className="w-full history-table">
-              <colgroup>
-                <col className="col-num" />
-                <col />
-                <col />
-                <col />
-                <col />
-                <col className="col-status" />
-              </colgroup>
+          <div className="max-h-[65vh] overflow-y-auto rounded-xl border border-white/10">
+            {/* ให้ตารางเลื่อนแนวนอนได้ */}
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[800px] history-table text-xs sm:text-sm">
+                <colgroup>
+                  <col style={{ width: 56 }} />
+                  <col />
+                  <col style={{ width: 160 }} />
+                  <col style={{ width: 88 }} />
+                  <col />
+                  <col style={{ width: 120 }} />
+                  <col style={{ width: 120 }} />
+                </colgroup>
 
-              <thead>
-                <tr>
-                  <th className="px-3 py-2 text-center text-sm font-semibold bg-white/5">ลำดับ</th>
-                  <th className="px-3 py-2 text-center text-sm font-semibold bg-white/5">ประเภทการลา</th>
-                  <th className="px-3 py-2 text-center text-sm font-semibold bg-white/5">ช่วงวันที่ลา</th>
-                  <th className="px-3 py-2 text-center text-sm font-semibold bg-white/5">ความเห็นผู้อนุมัติ</th>
-                  <th className="px-3 py-2 text-center text-sm font-semibold bg-white/5">ผู้อนุมัติ</th>
-                  <th className="px-3 py-2 text-center text-sm font-semibold bg-white/5">ผลการอนุมัติ</th>
-                </tr>
-              </thead>
-
-              <tbody>
-                {items.map((r) => (
-                  <tr key={r.no} className="odd:bg-white/0 even:bg-white/5">
-                    <td className="px-3 py-2 text-center">{r.no}</td>
-                    <td className="px-3 py-2 text-center">{r.type || '-'}</td>
-                    <td className="px-3 py-2 text-center tabular-nums">{r.range || '-'}</td>
-                    <td className="px-3 py-2 text-center">{r.approverComment || '-'}</td>
-                    <td className="px-3 py-2 text-center">{r.approver || '-'}</td>
-                    <td className="px-3 py-2 text-center">
-                      <StatusPill status={r.status} />
-                    </td>
+                <thead>
+                  <tr className="sticky top-0 z-10 bg-slate-900/80">
+                    <th className="px-3 py-2 text-center text-xs sm:text-sm font-semibold whitespace-nowrap">
+                      ลำดับ
+                    </th>
+                    <th className="px-3 py-2 text-center text-xs sm:text-sm font-semibold whitespace-nowrap">
+                      ประเภทการลา
+                    </th>
+                    <th className="px-3 py-2 text-center text-xs sm:text-sm font-semibold whitespace-nowrap">
+                      ช่วงวันที่ลา
+                    </th>
+                    <th className="px-3 py-2 text-center text-xs sm:text-sm font-semibold whitespace-nowrap">
+                      จำนวนวันลา
+                    </th>
+                    <th className="px-3 py-2 text-center text-xs sm:text-sm font-semibold whitespace-nowrap">
+                      ความเห็นผู้อนุมัติ
+                    </th>
+                    <th className="px-3 py-2 text-center text-xs sm:text-sm font-semibold whitespace-nowrap">
+                      ผู้อนุมัติ
+                    </th>
+                    <th className="px-3 py-2 text-center text-xs sm:text-sm font-semibold whitespace-nowrap">
+                      ผลการอนุมัติ
+                    </th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+
+                <tbody>
+                  {items.map((r) => (
+                    <tr key={r.no} className="odd:bg-white/0 even:bg-white/5">
+                      <td className="px-3 py-2 text-center whitespace-nowrap">
+                        {r.no}
+                      </td>
+                      <td className="px-3 py-2 text-center whitespace-nowrap">
+                        {r.type || "-"}
+                      </td>
+                      <td className="px-3 py-2 text-center tabular-nums whitespace-nowrap">
+                        {r.range || "-"}
+                      </td>
+                      <td className="px-3 py-2 text-center tabular-nums whitespace-nowrap">
+                        {r.days ?? "-"}
+                      </td>
+                      <td className="px-3 py-2 text-center">
+                        {r.approverComment || "-"}
+                      </td>
+                      <td className="px-3 py-2 text-center whitespace-nowrap">
+                        {r.approver || "-"}
+                      </td>
+                      <td className="px-3 py-2 text-center whitespace-nowrap">
+                        <StatusPill status={r.status} />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
 
@@ -125,22 +158,24 @@ function StatusPill({
   const config = {
     approved: {
       label: "อนุมัติ",
-      className: "bg-emerald-500/20 text-emerald-400 ring-emerald-500/30"
+      className: "bg-emerald-500/20 text-emerald-400 ring-emerald-500/30",
     },
     rejected: {
-      label: "ไม่อนุมัติ", 
-      className: "bg-red-500/20 text-red-400 ring-red-500/30"
+      label: "ไม่อนุมัติ",
+      className: "bg-red-500/20 text-red-400 ring-red-500/30",
     },
     pending: {
       label: "รออนุมัติ",
-      className: "bg-amber-500/20 text-amber-400 ring-amber-500/30"
-    }
+      className: "bg-amber-500/20 text-amber-400 ring-amber-500/30",
+    },
   };
 
   const { label, className } = config[status];
-  
+
   return (
-    <span className={`inline-block rounded-lg px-2 py-1 text-xs font-semibold ring-1 ${className}`}>
+    <span
+      className={`inline-block rounded-lg px-2 py-1 text-xs font-semibold ring-1 ${className}`}
+    >
       {label}
     </span>
   );

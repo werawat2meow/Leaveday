@@ -7,19 +7,27 @@ import LeaveHistoryModal, {
 } from "@/components/LeaveHistoryModal";
 
 type LeaveKind =
-  | "ANNUAL" | "SICK" | "BUSINESS" | "UNPAID"
-  | "BIRTHDAY" | "ORDAIN" | "MATERNITY"
-  | "SHIFT_CHANGE" | "HOLIDAY_CHANGE" | "OT" | "ANNUAL_HOLIDAY";
+  | "ANNUAL"
+  | "SICK"
+  | "BUSINESS"
+  | "UNPAID"
+  | "BIRTHDAY"
+  | "ORDAIN"
+  | "MATERNITY"
+  | "SHIFT_CHANGE"
+  | "HOLIDAY_CHANGE"
+  | "OT"
+  | "ANNUAL_HOLIDAY";
 
 // รายการปุ่มที่จะแสดงใน UI
 const LEAVE_TYPES: Array<{ label: string; kind: LeaveKind }> = [
-  { label: "Annual Leave",        kind: "ANNUAL" },
-  { label: "Sick Leave",          kind: "SICK" },
-  { label: "Personal Leave",      kind: "BUSINESS" },  // (= Business)
-  { label: "Leave without Pay",   kind: "UNPAID" },
-  { label: "Birthday Leave",      kind: "BIRTHDAY" },
-  { label: "Monkhood Leave",      kind: "ORDAIN" },
-  { label: "Maternity Leave",     kind: "MATERNITY" },
+  { label: "Annual Leave", kind: "ANNUAL" },
+  { label: "Sick Leave", kind: "SICK" },
+  { label: "Personal Leave", kind: "BUSINESS" }, // (= Business)
+  { label: "Leave without Pay", kind: "UNPAID" },
+  { label: "Birthday Leave", kind: "BIRTHDAY" },
+  { label: "Monkhood Leave", kind: "ORDAIN" },
+  { label: "Maternity Leave", kind: "MATERNITY" },
   { label: "Annual Holiday Leave", kind: "ANNUAL_HOLIDAY" }, // ลาโดยใช้วันหยุดประจำปี
   // ซ่อนไว้ก่อน - ยังไม่มีการใช้งาน
   // { label: "Shift Change",        kind: "SHIFT_CHANGE" },
@@ -52,110 +60,207 @@ type LeaveForm = {
   approverId?: number | null;
 };
 
-  type ApproverOption = {
-    id: number;
-    label: string;
-    name: string;
-    empNo: string;
-    department?: string | null;
-    division?: string | null;
-    unit?: string | null;
-    level?: string | null;
-    email?: string | null;
-  };
+type ApproverOption = {
+  id: number;
+  label: string;
+  name: string;
+  empNo: string;
+  department?: string | null;
+  division?: string | null;
+  unit?: string | null;
+  level?: string | null;
+  email?: string | null;
+};
 
 type MeResponse = {
   employee: {
     empNo: string;
-    email?: string|null;
-    prefix?: string|null;
+    email?: string | null;
+    prefix?: string | null;
     firstName: string;
     lastName: string;
-    position?: string|null;
-    section?: string|null;
-    department?: string|null;
-    levelP?: string|null;
-    idCard?: string|null;
-    photoUrl?: string|null;
+    position?: string | null;
+    section?: string | null;
+    department?: string | null;
+    levelP?: string | null;
+    idCard?: string | null;
+    photoUrl?: string | null;
+    startDate?: string | null;
   };
-    rights: {
-      levelFrom: string | null;
-      entitled: {
-        vacation:number; business:number; sick:number;
-        ordainDays:number; maternity:number; birthday:number; unpaid:number;
-        annualHolidays:number;
-      };
-      used: {
-        vacation:number; business:number; sick:number;
-        ordainDays:number; maternity:number; birthday:number; unpaid:number;
-        annualHolidays:number;
-      };
-      remaining: {
-        vacation:number; business:number; sick:number;
-        ordainDays:number; maternity:number; birthday:number; unpaid:number;
-        annualHolidays:number;
-      };
+  rights: {
+    levelFrom: string | null;
+    entitled: {
+      vacation: number;
+      business: number;
+      sick: number;
+      ordainDays: number;
+      maternity: number;
+      birthday: number;
+      unpaid: number;
+      annualHolidays: number;
     };
-  } | null;
-
-
+    used: {
+      vacation: number;
+      business: number;
+      sick: number;
+      ordainDays: number;
+      maternity: number;
+      birthday: number;
+      unpaid: number;
+      annualHolidays: number;
+    };
+    remaining: {
+      vacation: number;
+      business: number;
+      sick: number;
+      ordainDays: number;
+      maternity: number;
+      birthday: number;
+      unpaid: number;
+      annualHolidays: number;
+    };
+  };
+} | null;
 
 export default function LeavePage() {
+  // ประกาศ state me ก่อน useEffect leaveUsed
+  const [me, setMe] = useState<MeResponse>(null);
+  const [loadingMe, setLoadingMe] = useState(false);
+  const [meError, setMeError] = useState<string | null>(null);
+
+  // เพิ่ม state สำหรับ leaveUsed
+  const [leaveUsed, setLeaveUsed] = useState<any>(null);
+  const [loadingLeaveUsed, setLoadingLeaveUsed] = useState(false);
+  const [leaveUsedError, setLeaveUsedError] = useState<string | null>(null);
+
+  // ดึง leave summary (ยอดใช้วันลาแต่ละประเภท)
+  async function fetchLeaveUsed() {
+    if (!me) return;
+    setLoadingLeaveUsed(true);
+    setLeaveUsedError(null);
+    try {
+      const res = await fetch("/api/leaves/summary", {
+        credentials: "include",
+        cache: "no-store",
+      });
+      if (!res.ok) {
+        setLeaveUsed(null);
+        setLeaveUsedError(`โหลดข้อมูลการใช้วันลาไม่สำเร็จ (${res.status})`);
+        return;
+      }
+      const raw = await res.json();
+      setLeaveUsed(raw?.data ?? null);
+      console.log("leaveUsed", raw?.data);
+    } catch (e: any) {
+      setLeaveUsed(null);
+      setLeaveUsedError(
+        e?.message || "เกิดข้อผิดพลาดในการโหลดข้อมูลการใช้วันลา"
+      );
+    } finally {
+      setLoadingLeaveUsed(false);
+    }
+  }
+  useEffect(() => {
+    if (!me) return;
+    fetchLeaveUsed();
+  }, [me]);
 
   const router = useRouter();
   const [openHistory, setOpenHistory] = useState(false);
   const [history, setHistory] = useState<LeaveHistoryItem[]>([]);
 
-useEffect(() => {
-  if (!openHistory) return;
-  (async () => {
-    try {
-      console.log("🔄 Fetching leave history..."); // เพิ่ม debug
-      
-      const res = await fetch("/api/leaves", { credentials: "include" });
-      const json = await res.json();
-      
-      console.log("📋 API Response:", json); // เพิ่ม debug
-      console.log("📋 Is array?", Array.isArray(json.data)); // เพิ่ม debug
-      
-      if (Array.isArray(json.data)) {
-        console.log("📋 Raw data:", json.data); // เพิ่ม debug
-        
-        setHistory(
-          json.data.map((l: any, idx: number) => {
-            console.log(`📋 Item ${idx}:`, l); // เพิ่ม debug
-            return {
-              no: idx + 1,
-              type: l.kind,
-              range: `${new Date(l.startDate).toLocaleDateString()} - ${new Date(l.endDate).toLocaleDateString()}`,
-              from: l.startDate,
-              to: l.endDate,
-              approverComment: l.approverComment ?? "",
-              approver: l.approver?.name ?? "",
-              status:
-                l.status === "APPROVED"
-                  ? "approved"
-                  : l.status === "REJECTED"
-                  ? "rejected"
-                  : "pending",
-            };
-          })
-        );
-      } else {
-        console.log("❌ API response is not array format"); // เพิ่ม debug
-      }
-    } catch (e) {
-      console.error("❌ Error fetching leave history:", e); // เพิ่ม debug
-      setHistory([]);
+  // ...existing code...
+  // กรองประเภทการลาให้เหมาะสมกับเพศและสิทธิ
+  function getFilteredLeaveTypes() {
+    let filtered = LEAVE_TYPES;
+    if (isMale) {
+      filtered = filtered.filter((t) => t.kind !== "MATERNITY");
     }
-  })();
-}, [openHistory]);
+    if (isFemale) {
+      filtered = filtered.filter((t) => t.kind !== "ORDAIN");
+    }
+    if (myLeaveRights) {
+      filtered = filtered.filter((t) => {
+        if (t.kind === "MATERNITY")
+          return (myLeaveRights.maternityLeaveDays ?? 0) > 0;
+        if (t.kind === "ORDAIN")
+          return (myLeaveRights.ordainLeaveDays ?? 0) > 0;
+        // ไม่กรอง ANNUAL ออก ให้แสดงปุ่มเสมอ
+        if (t.kind === "SICK") return (myLeaveRights.sickLeaveDays ?? 0) > 0;
+        if (t.kind === "BUSINESS")
+          return (myLeaveRights.businessLeaveDays ?? 0) > 0;
+        if (t.kind === "BIRTHDAY")
+          return (myLeaveRights.birthdayLeaveDays ?? 0) > 0;
+        if (t.kind === "UNPAID")
+          return (myLeaveRights.unpaidLeaveDays ?? 0) > 0;
+        if (t.kind === "ANNUAL_HOLIDAY")
+          return (myLeaveRights.holidayLeaveDays ?? 0) > 0;
+        return true;
+      });
+    }
+    return filtered;
+  }
+
+  useEffect(() => {
+    if (!openHistory) return;
+    (async () => {
+      try {
+        console.log("🔄 Fetching leave history..."); // เพิ่ม debug
+
+        const res = await fetch("/api/leaves", { credentials: "include" });
+        const json = await res.json();
+
+        console.log("📋 API Response:", json); // เพิ่ม debug
+        console.log("📋 Is array?", Array.isArray(json.data)); // เพิ่ม debug
+
+        if (Array.isArray(json.data)) {
+          console.log("📋 Raw data:", json.data); // เพิ่ม debug
+
+          setHistory(
+            json.data.map((l: any, idx: number) => {
+              console.log(`📋 Item ${idx}:`, l); // เพิ่ม debug
+              return {
+                no: idx + 1,
+                type: l.kind,
+                range: `${new Date(
+                  l.startDate
+                ).toLocaleDateString("th-TH")} - ${new Date(
+                  l.endDate
+                ).toLocaleDateString("th-TH")}`,
+                from: l.startDate,
+                to: l.endDate,
+                approverComment: l.approverComment ?? "",
+                approver: l.approver?.name ?? "",
+                status:
+                  l.status === "APPROVED"
+                    ? "approved"
+                    : l.status === "REJECTED"
+                    ? "rejected"
+                    : "pending",
+                days: l.requestedDays,
+              };
+            })
+          );
+        } else {
+          console.log("❌ API response is not array format"); // เพิ่ม debug
+        }
+      } catch (e) {
+        console.error("❌ Error fetching leave history:", e); // เพิ่ม debug
+        setHistory([]);
+      }
+    })();
+  }, [openHistory]);
 
   const [emp, setEmp] = useState<EmployeeForm>({
     Nametitle: "นาย",
-    email: "",   // ใส่ค่าเริ่มต้น
-    idCard: "",  // ใส่ค่าเริ่มต้น
+    email: "",
+    idCard: "",
   });
+  // ตรวจสอบเพศจาก Nametitle (รองรับไทย/อังกฤษ) - ต้องอยู่หลังประกาศ emp
+  const nametitle = (emp?.Nametitle ?? "").trim().toLowerCase();
+  const isMale = ["นาย", "mr.", "mister"].includes(nametitle);
+  const isFemale = ["นาง", "นางสาว", "mrs.", "miss", "ms."].includes(nametitle);
+
   const [leave, setLeave] = useState<LeaveForm>({ session: "Full Day" });
   const [submitting, setSubmitting] = useState(false);
   const [agree, setAgree] = useState(false);
@@ -182,63 +287,91 @@ useEffect(() => {
     if (!emp.empNo || !emp.name) return "กรอกข้อมูลพนักงาน (รหัส/ชื่อ)";
     if (!leave.leaveType) return "เลือกประเภทการลา";
     if (!leave.fromDate || !leave.toDate) return "ระบุช่วงวันที่ลา";
+
+    // เช็คอายุงานสำหรับลาประจำปี (ANNUAL)
+    if (leave.leaveType === "ANNUAL" && me && me.employee.startDate) {
+      const startDate = new Date(me.employee.startDate);
+      const now = new Date();
+      const diffYears = (now.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24 * 365.25);
+      if (diffYears < 1) {
+        return "อายุงานยังไม่ครบ 1 ปี ไม่สามารถลาประจำปีได้";
+      }
+    }
+    // เช็คสิทธิวันลาคงเหลือ
+    if (leave.leaveType && leaveUsed) {
+      const used = leaveUsed[leave.leaveType] ?? 0;
+      const rightsField = getLeaveRightsField(leave.leaveType);
+      const rights = myLeaveRights ? myLeaveRights[rightsField] ?? 0 : 0;
+      if (rights - used < totalDays) {
+        return "วันลาประเภทนี้หมดสิทธิ ไม่สามารถลาเกินจำนวนที่กำหนด";
+      }
+    }
     return "";
   }
 
   function getSessionLabel(s?: LeaveForm["session"]) {
-  return s || "Full Day";
-    }
-    async function uploadIfAny(file: File | null | undefined) {
-      if (!file) return null;
-      const fd = new FormData();
-      fd.append("file", file);
-      const res = await fetch("/api/uploads", { method: "POST", body: fd, credentials: "include" });
-      const j = await res.json();
-      if (!res.ok) throw new Error(j?.error || "อัปโหลดไฟล์ไม่สำเร็จ");
-      return j?.url || j?.data?.url || null;
-    }
-
-async function onSubmit(e: React.FormEvent) {
-  e.preventDefault();
-  const err = validate();
-  if (err) return alert(err);
-  if (!agree) return alert("กรุณายืนยันว่าข้อมูลถูกต้อง");
-
-  try {
-    setSubmitting(true);
-    const attachmentUrl = await uploadIfAny(leave.attachment ?? null);
-
-    const payload = {
-      kind: leave.leaveType,                    // "ANNUAL" | "SICK" | ...
-      startDate: leave.fromDate,
-      endDate: leave.toDate,
-      sessionLabel: getSessionLabel(leave.session), // "Full Day" | "Morning (Half)" | "Afternoon (Half)"
-      reason: leave.reason ?? "",
-      contact: leave.contact ?? "",
-      handoverTo: leave.handoverTo ?? "",
-      attachmentUrl,
-      approverId: leave.approverId,
-    };
-
-    const res = await fetch("/api/leaves", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      credentials: "include",
-      body: JSON.stringify(payload),
-    });
-    const json = await res.json();
-    if (!res.ok || !json?.ok) throw new Error(json?.error || "ส่งคำขอลาไม่สำเร็จ");
-
-    alert("ส่งคำขอลาสำเร็จ");
-    router.push("/dashboard");
-  } catch (e: any) {
-    alert(e?.message || "เกิดข้อผิดพลาด");
-  } finally {
-    setSubmitting(false);
+    return s || "Full Day";
   }
-}
+  async function uploadIfAny(file: File | null | undefined) {
+    if (!file) return null;
+    const fd = new FormData();
+    fd.append("file", file);
+    const res = await fetch("/api/uploads", {
+      method: "POST",
+      body: fd,
+      credentials: "include",
+    });
+    const j = await res.json();
+    if (!res.ok) throw new Error(j?.error || "อัปโหลดไฟล์ไม่สำเร็จ");
+    return j?.url || j?.data?.url || null;
+  }
 
-  const [allRights, setAllRights] = useState<Array<{level:string; vacation:number; business:number; sick:number}>>([]);
+  async function onSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    const err = validate();
+    if (err) return alert(err);
+    if (!agree) return alert("กรุณายืนยันว่าข้อมูลถูกต้อง");
+
+    try {
+      setSubmitting(true);
+      const attachmentUrl = await uploadIfAny(leave.attachment ?? null);
+
+      const payload = {
+        kind: leave.leaveType, // "ANNUAL" | "SICK" | ...
+        startDate: leave.fromDate,
+        endDate: leave.toDate,
+        sessionLabel: getSessionLabel(leave.session), // "Full Day" | "Morning (Half)" | "Afternoon (Half)"
+        reason: leave.reason ?? "",
+        contact: leave.contact ?? "",
+        handoverTo: leave.handoverTo ?? "",
+        attachmentUrl,
+        approverId: leave.approverId,
+      };
+
+      const res = await fetch("/api/leaves", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(payload),
+      });
+      const json = await res.json();
+      if (!res.ok || !json?.ok)
+        throw new Error(json?.error || "ส่งคำขอลาไม่สำเร็จ");
+
+      alert("ส่งคำขอลาสำเร็จ");
+      await fetchLeaveUsed(); // อัพเดทสิทธิวันลาแบบทันที
+      setLeave({ session: "Full Day" }); // เคลียร์ข้อมูลฟอร์มลา
+      router.push("/dashboard");
+    } catch (e: any) {
+      alert(e?.message || "เกิดข้อผิดพลาด");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  const [allRights, setAllRights] = useState<
+    Array<{ level: string; vacation: number; business: number; sick: number }>
+  >([]);
   const [loadingAllRights, setLoadingAllRights] = useState(false);
 
   useEffect(() => {
@@ -256,10 +389,10 @@ async function onSubmit(e: React.FormEvent) {
         const raw = await res.json();
         setAllRights(
           (raw?.data || []).map((r: any) => ({
-            level: r.level,
-            vacation: r.vacation,
-            business: r.business,
-            sick: r.sick,
+            level: r.prefix,
+            vacation: r.annualLeaveDays,
+            business: r.businessLeaveDays,
+            sick: r.sickLeaveDays,
           }))
         );
       } catch (e: any) {
@@ -277,7 +410,9 @@ async function onSubmit(e: React.FormEvent) {
     };
   }, []);
 
-  const [holidays, setHolidays] = useState<Array<{ id: number; title: string; date: string; note?: string | null }>>([]);
+  const [holidays, setHolidays] = useState<
+    Array<{ id: number; title: string; date: string; note?: string | null }>
+  >([]);
   const [loadingHolidays, setLoadingHolidays] = useState(false);
   const [holidaysError, setHolidaysError] = useState<string | null>(null);
 
@@ -329,114 +464,148 @@ async function onSubmit(e: React.FormEvent) {
     };
   }, []);
 
-const [me, setMe] = useState<MeResponse>(null);
-const [loadingMe, setLoadingMe] = useState(false);
-const [meError, setMeError] = useState<string|null>(null);
+  // Leave rights template ตาม Level P
+  const [myLeaveRights, setMyLeaveRights] = useState<any>(null);
+  const [loadingMyLeaveRights, setLoadingMyLeaveRights] = useState(false);
+  const [myLeaveRightsError, setMyLeaveRightsError] = useState<string | null>(
+    null
+  );
 
+  useEffect(() => {
+    const ctrl = new AbortController();
+    (async () => {
+      try {
+        setLoadingMe(true);
+        setMeError(null);
+        const res = await fetch("/api/employees/me", {
+          signal: ctrl.signal,
+          credentials: "include",
+          cache: "no-store",
+        });
+        if (!res.ok) {
+          setMe(null);
+          setMeError(`โหลดข้อมูลพนักงานไม่สำเร็จ (${res.status})`);
+          return;
+        }
+        const raw = await res.json();
+        console.log("ME API ->", raw);
 
-useEffect(() => {
-  const ctrl = new AbortController();
-  (async () => {
-    try {
-      setLoadingMe(true);
-      setMeError(null);
-      const res = await fetch("/api/employees/me", {
-        signal: ctrl.signal,
-        credentials: "include",
-        cache: "no-store",
-      });
-      if (!res.ok) {
+        setEmp((s) => ({
+          ...s,
+          Nametitle: raw.employee.prefix ?? s.Nametitle ?? "",
+          empNo: raw.employee.empNo ?? s.empNo ?? "",
+          name: `${raw.employee.firstName ?? ""} ${
+            raw.employee.lastName ?? ""
+          }`.trim(),
+          position: raw.employee.position ?? s.position ?? "",
+          section: raw.employee.section ?? s.section ?? "",
+          department: raw.employee.department ?? s.department ?? "",
+          LevelP: raw.employee.levelP ?? s.LevelP ?? "",
+          email: raw.employee.email ?? s.email,
+          idCard: raw.employee.idCard ?? s.idCard,
+          photoUrl: raw.employee.photoUrl ?? s.photoUrl,
+        }));
+
+        setMe(raw);
+
+        // ดึง leave rights template ตาม Level P
+        if (raw.employee.levelP) {
+          setLoadingMyLeaveRights(true);
+          setMyLeaveRightsError(null);
+          try {
+            const res2 = await fetch(
+              `/api/leave-rights?prefix=${raw.employee.levelP}`,
+              {
+                signal: ctrl.signal,
+                cache: "no-store",
+              }
+            );
+            if (!res2.ok) {
+              setMyLeaveRights(null);
+              setMyLeaveRightsError(`โหลดสิทธิวันลาไม่สำเร็จ (${res2.status})`);
+            } else {
+              const raw2 = await res2.json();
+              setMyLeaveRights(raw2?.data ?? null);
+            }
+          } catch (e: any) {
+            if (ctrl.signal.aborted || e?.name === "AbortError") return;
+            setMyLeaveRights(null);
+            setMyLeaveRightsError(
+              e?.message || "เกิดข้อผิดพลาดในการโหลดสิทธิวันลา"
+            );
+          } finally {
+            setLoadingMyLeaveRights(false);
+          }
+        }
+      } catch (e: any) {
+        if (ctrl.signal.aborted || e?.name === "AbortError") return;
+        console.error(e);
         setMe(null);
-        setMeError(`โหลดข้อมูลพนักงานไม่สำเร็จ (${res.status})`);
-        return;
+        setMeError(e?.message || "เกิดข้อผิดพลาด");
+      } finally {
+        setLoadingMe(false);
       }
-      const raw = await res.json();
-      console.log("ME API ->", raw);
-
-      // เซ็ตฟอร์มพนักงานให้พร้อมกรอกลา (คงโครงสร้างเดิมของคุณ)
-      setEmp(s => ({
-      ...s,
-      Nametitle: raw.employee.prefix ?? s.Nametitle ?? "",
-      empNo:     raw.employee.empNo   ?? s.empNo     ?? "",
-      name:      `${raw.employee.firstName ?? ""} ${raw.employee.lastName ?? ""}`.trim(),
-      position:  raw.employee.position  ?? s.position   ?? "",
-      section:   raw.employee.section   ?? s.section    ?? "",   // <-- section
-      department:raw.employee.department?? s.department ?? "",
-      LevelP:    raw.employee.levelP    ?? s.LevelP     ?? "",
-      email:     raw.employee.email     ?? s.email,
-      idCard:    raw.employee.idCard    ?? s.idCard,
-      photoUrl:  raw.employee.photoUrl  ?? s.photoUrl,
-    }));
-
-      setMe(raw);
-    } catch (e: any) {
-      if (ctrl.signal.aborted || e?.name === "AbortError") return;
-      console.error(e);
-      setMe(null);
-      setMeError(e?.message || "เกิดข้อผิดพลาด");
-    } finally {
-      setLoadingMe(false);
-    }
-  })();
-  return () => { if (!ctrl.signal.aborted) ctrl.abort(); };
-}, []);
+    })();
+    return () => {
+      if (!ctrl.signal.aborted) ctrl.abort();
+    };
+  }, []);
 
   const [approvers, setApprovers] = useState<ApproverOption[]>([]);
   const [loadingApprovers, setLoadingApprovers] = useState(false);
   const [approverError, setApproverError] = useState<string | null>(null);
-  
- useEffect(() => {
-  // ถ้ายังไม่มี me (ยังโหลดข้อมูลพนักงานไม่เสร็จ) ก็ยังไม่ต้องเรียก API นี้
-  if (!me) return;
 
-  const ctrl = new AbortController();
+  useEffect(() => {
+    // ถ้ายังไม่มี me (ยังโหลดข้อมูลพนักงานไม่เสร็จ) ก็ยังไม่ต้องเรียก API นี้
+    if (!me) return;
 
-  (async () => {
-    try {
-      setLoadingApprovers(true);
-      setApproverError(null);
+    const ctrl = new AbortController();
 
-      const res = await fetch("/api/approvers/available", {
-        signal: ctrl.signal,
-        credentials: "include",
-      });
+    (async () => {
+      try {
+        setLoadingApprovers(true);
+        setApproverError(null);
 
-      if (!res.ok) {
-        const txt = await res.text().catch(() => "");
-        console.error("Approvers API error:", res.status, txt);
+        const res = await fetch("/api/approvers/available", {
+          signal: ctrl.signal,
+          credentials: "include",
+        });
+
+        if (!res.ok) {
+          const txt = await res.text().catch(() => "");
+          console.error("Approvers API error:", res.status, txt);
+          setApprovers([]);
+          setApproverError(`โหลดรายชื่อผู้อนุมัติไม่สำเร็จ (${res.status})`);
+          return;
+        }
+
+        const raw = await res.json();
+        const list = (raw?.data || []) as ApproverOption[];
+
+        setApprovers(list);
+
+        // ถ้ายังไม่ได้เลือก approverId และมีรายชื่อ → set default เป็นคนแรก
+        if (!leave.approverId && list.length > 0) {
+          setLeave((s) => ({
+            ...s,
+            approverId: list[0].id,
+            handoverTo: list[0].name, // ชื่อผู้อนุมัติ เผื่อใช้ส่งไปเก็บเป็น text
+          }));
+        }
+      } catch (e: any) {
+        if (ctrl.signal.aborted || e?.name === "AbortError") return;
+        console.error(e);
         setApprovers([]);
-        setApproverError(`โหลดรายชื่อผู้อนุมัติไม่สำเร็จ (${res.status})`);
-        return;
+        setApproverError(e?.message || "เกิดข้อผิดพลาดในการโหลดผู้อนุมัติ");
+      } finally {
+        setLoadingApprovers(false);
       }
+    })();
 
-      const raw = await res.json();
-      const list = (raw?.data || []) as ApproverOption[];
-
-      setApprovers(list);
-
-      // ถ้ายังไม่ได้เลือก approverId และมีรายชื่อ → set default เป็นคนแรก
-      if (!leave.approverId && list.length > 0) {
-        setLeave(s => ({
-          ...s,
-          approverId: list[0].id,
-          handoverTo: list[0].name,   // ชื่อผู้อนุมัติ เผื่อใช้ส่งไปเก็บเป็น text
-        }));
-      }
-    } catch (e: any) {
-      if (ctrl.signal.aborted || e?.name === "AbortError") return;
-      console.error(e);
-      setApprovers([]);
-      setApproverError(e?.message || "เกิดข้อผิดพลาดในการโหลดผู้อนุมัติ");
-    } finally {
-      setLoadingApprovers(false);
-    }
-  })();
-
-  return () => {
-    if (!ctrl.signal.aborted) ctrl.abort();
-  };
-}, [me, leave.approverId]);  // ให้รันเมื่อ me พร้อม หรือ approverId เปลี่ยน
-
+    return () => {
+      if (!ctrl.signal.aborted) ctrl.abort();
+    };
+  }, [me, leave.approverId]); // ให้รันเมื่อ me พร้อม หรือ approverId เปลี่ยน
 
   return (
     <main className="min-h-dvh bg-[var(--bg)] text-[var(--text)]">
@@ -462,11 +631,17 @@ useEffect(() => {
           {/* ข้อมูลพนักงาน */}
           <div className="neon-card rounded-2xl p-3 sm:p-5">
             <div className="flex items-center justify-between mb-3">
-              <h2 className="neon-title text-base sm:text-lg font-semibold break-words">ข้อมูลพนักงาน</h2>
+              <h2 className="neon-title text-base sm:text-lg font-semibold break-words">
+                ข้อมูลพนักงาน
+              </h2>
             </div>
 
             <div className="grid gap-2 sm:gap-3 grid-cols-1 sm:grid-cols-2">
-              <Input label="รหัสพนักงาน (EMP No.)" value={emp.empNo ?? ""} readOnly />
+              <Input
+                label="รหัสพนักงาน (EMP No.)"
+                value={emp.empNo ?? ""}
+                readOnly
+              />
               <Input
                 label="วันที่ยื่น (Auto)"
                 value={new Date().toLocaleDateString("th-TH")}
@@ -474,7 +649,11 @@ useEffect(() => {
               />
 
               {/* ✅ เพิ่มคำนำหน้าชื่อ */}
-              <Input label="คำนำหน้าชื่อ" value={emp.Nametitle ?? ""} readOnly />
+              <Input
+                label="คำนำหน้าชื่อ"
+                value={emp.Nametitle ?? ""}
+                readOnly
+              />
               <Input label="ชื่อ - สกุล" value={emp.name ?? ""} readOnly />
 
               <Input label="Email" value={emp.email ?? ""} readOnly />
@@ -494,9 +673,7 @@ useEffect(() => {
               /> */}
             </div>
 
-            {meError && (
-              <p className="text-xs text-red-400 mt-2">{meError}</p>
-            )}
+            {meError && <p className="text-xs text-red-400 mt-2">{meError}</p>}
           </div>
 
           {/* ประเภทการลา */}
@@ -505,11 +682,15 @@ useEffect(() => {
               ประเภทการลา
             </h2>
             <div className="grid gap-2 sm:gap-3 grid-cols-1 sm:grid-cols-2">
-              {LEAVE_TYPES.map((t) => (
-                <label key={t.kind}
+              {getFilteredLeaveTypes().map((t) => (
+                <label
+                  key={t.kind}
                   className={`rounded-xl border border-white/10 p-3 cursor-pointer transition ${
-                    leave.leaveType === t.kind ? "bg-[var(--input)] ring-2 ring-[var(--cyan)]" : "bg-transparent hover:bg-white/5"
-                  }`}>
+                    leave.leaveType === t.kind
+                      ? "bg-[var(--input)] ring-2 ring-[var(--cyan)]"
+                      : "bg-transparent hover:bg-white/5"
+                  }`}
+                >
                   <input
                     type="radio"
                     name="leaveType"
@@ -595,8 +776,9 @@ useEffect(() => {
                     value={leave.approverId ? String(leave.approverId) : ""}
                     onChange={(e) => {
                       const id = e.target.value ? Number(e.target.value) : null;
-                      const selected = approvers.find(a => a.id === id) || null;
-                      setLeave(s => ({
+                      const selected =
+                        approvers.find((a) => a.id === id) || null;
+                      setLeave((s) => ({
                         ...s,
                         approverId: id,
                         handoverTo: selected?.name ?? s.handoverTo,
@@ -671,12 +853,12 @@ useEffect(() => {
                 ยกเลิก
               </button>
               <button
-                  type="submit"
-                  disabled={submitting || !leave.leaveType}
-                  className="rounded-xl px-4 sm:px-5 py-2 font-semibold bg-[var(--cyan)] text-[#001418] shadow-[0_10px_28px_var(--cyan-soft)] disabled:opacity-50 text-sm sm:text-base order-1 sm:order-2 whitespace-nowrap"
-                >
-                  {submitting ? "กำลังส่ง..." : "ส่งคำขอลา"}
-                </button>
+                type="submit"
+                disabled={submitting || !leave.leaveType}
+                className="rounded-xl px-4 sm:px-5 py-2 font-semibold bg-[var(--cyan)] text-[#001418] shadow-[0_10px_28px_var(--cyan-soft)] disabled:opacity-50 text-sm sm:text-base order-1 sm:order-2 whitespace-nowrap"
+              >
+                {submitting ? "กำลังส่ง..." : "ส่งคำขอลา"}
+              </button>
             </div>
           </form>
         </section>
@@ -684,7 +866,9 @@ useEffect(() => {
         {/* ฝั่งขวา: สิทธิวันลา + วันหยุดประจำปี */}
         <aside className="space-y-4 sm:space-y-6">
           <div className="neon-card rounded-2xl p-5">
-            <h2 className="neon-title mb-3 text-lg font-semibold">สิทธิวันลา (ทุกระดับ)</h2>
+            <h2 className="neon-title mb-3 text-lg font-semibold">
+              สิทธิวันลา (ทุกระดับ)
+            </h2>
             {loadingAllRights ? (
               <p className="text-sm text-[var(--muted)]">กำลังโหลด...</p>
             ) : allRights.length === 0 ? (
@@ -701,61 +885,429 @@ useEffect(() => {
                     </tr>
                   </thead>
                   <tbody>
-                    {allRights.map((r) => (
-                      <tr key={r.level} className="odd:bg-white/0 even:bg-white/5">
-                        <td className="px-3 py-2">{r.level}</td>
-                        <td className="px-3 py-2 text-center">{r.vacation}</td>
-                        <td className="px-3 py-2 text-center">{r.business}</td>
-                        <td className="px-3 py-2 text-center">{r.sick}</td>
-                      </tr>
-                    ))}
+                    {[...allRights]
+                      .sort((a, b) => {
+                        // สมมติ level เป็น P2, P3, ... P7
+                        // เอาเลขหลัง P มาเทียบ (มากสุดก่อน)
+                        const numA =
+                          parseInt(
+                            (a.level ?? "P0").replace(/[^0-9]/g, ""),
+                            10
+                          ) || 0;
+                        const numB =
+                          parseInt(
+                            (b.level ?? "P0").replace(/[^0-9]/g, ""),
+                            10
+                          ) || 0;
+                        return numB - numA;
+                      })
+                      .map((r) => (
+                        <tr
+                          key={r.level}
+                          className="odd:bg-white/0 even:bg-white/5"
+                        >
+                          <td className="px-3 py-2">
+                            <span translate="no">{`P${r.level.replace(
+                              /[^0-9]/g,
+                              ""
+                            )}`}</span>
+                          </td>
+                          <td className="px-3 py-2 text-center">
+                            {r.vacation}
+                          </td>
+                          <td className="px-3 py-2 text-center">
+                            {r.business}
+                          </td>
+                          <td className="px-3 py-2 text-center">{r.sick}</td>
+                        </tr>
+                      ))}
                   </tbody>
                 </table>
               </div>
-            )} 
-          </div>
-          {me && (
-              <div className="neon-card rounded-2xl p-5">
-                <h2 className="neon-title mb-3 text-lg font-semibold">
-                  สิทธิวันลาของฉัน (ปี {new Date().getFullYear() + 543})
-                </h2>
-
-                <div className="grid gap-3 md:grid-cols-3">
-                  <EntBox title="Sick"            data={me.rights} k="sick" />
-                  <EntBox title="Business"        data={me.rights} k="business" />
-                  <EntBox title="Annual"          data={me.rights} k="vacation" />
-                  <EntBox title="Holidays"        data={me.rights} k="annualHolidays" />
-                  <EntBox title="Unpaid"          data={me.rights} k="unpaid" />
-                  <EntBox title="Birthday"        data={me.rights} k="birthday" />
-                  <EntBox title="Ordain"          data={me.rights} k="ordainDays" />
-                  <EntBox title="Maternity"       data={me.rights} k="maternity" />
-                </div>
-
-                {me.rights.levelFrom && (
-                  <p className="mt-2 text-xs text-[var(--muted)]">
-                    อิงสิทธิ์จากระดับ (Level P): <b>{me.rights.levelFrom}</b>
-                  </p>
-                )}
-              </div>
             )}
+          </div>
+          {/* สิทธิวันลาของฉัน (ปี xxxx) */}
+          {me && (
+            <div className="neon-card rounded-2xl p-5">
+              <h2 className="neon-title mb-3 text-lg font-semibold">
+                สิทธิวันลาของฉัน (ปี {new Date().getFullYear() + 543})
+              </h2>
 
-          <div className="neon-card rounded-2xl p-3 sm:p-5">
-            <h2 className="neon-title mb-3 text-sm sm:text-lg font-semibold break-words hyphens-auto leading-tight">
+              {loadingMyLeaveRights || loadingLeaveUsed ? (
+                <p className="text-sm text-[var(--muted)]">
+                  กำลังโหลดสิทธิวันลา...
+                </p>
+              ) : myLeaveRightsError ? (
+                <p className="text-sm text-red-400">{myLeaveRightsError}</p>
+              ) : leaveUsedError ? (
+                <p className="text-sm text-red-400">{leaveUsedError}</p>
+              ) : myLeaveRights ? (
+                <>
+                <div className="grid gap-3 md:grid-cols-3">
+                  <EntBox
+                    title="Sick"
+                    data={{
+                      entitled: {
+                        vacation: 0,
+                        business: 0,
+                        sick: myLeaveRights.sickLeaveDays ?? 0,
+                        ordainDays: 0,
+                        maternity: 0,
+                        birthday: 0,
+                        unpaid: 0,
+                        annualHolidays: 0,
+                      },
+                      used: {
+                        vacation: 0,
+                        business: 0,
+                        sick: leaveUsed?.SICK ?? 0,
+                        ordainDays: 0,
+                        maternity: 0,
+                        birthday: 0,
+                        unpaid: 0,
+                        annualHolidays: 0,
+                      },
+                      remaining: {
+                        vacation: 0,
+                        business: 0,
+                        sick:
+                          (myLeaveRights.sickLeaveDays ?? 0) -
+                          (leaveUsed?.SICK ?? 0),
+                        ordainDays: 0,
+                        maternity: 0,
+                        birthday: 0,
+                        unpaid: 0,
+                        annualHolidays: 0,
+                      },
+                    }}
+                    k="sick"
+                  />
+
+                  <EntBox
+                    title="Business"
+                    data={{
+                      entitled: {
+                        vacation: 0,
+                        business: myLeaveRights.businessLeaveDays ?? 0,
+                        sick: 0,
+                        ordainDays: 0,
+                        maternity: 0,
+                        birthday: 0,
+                        unpaid: 0,
+                        annualHolidays: 0,
+                      },
+                      used: {
+                        vacation: 0,
+                        business: leaveUsed?.BUSINESS ?? 0,
+                        sick: 0,
+                        ordainDays: 0,
+                        maternity: 0,
+                        birthday: 0,
+                        unpaid: 0,
+                        annualHolidays: 0,
+                      },
+                      remaining: {
+                        vacation: 0,
+                        business:
+                          (myLeaveRights.businessLeaveDays ?? 0) -
+                          (leaveUsed?.BUSINESS ?? 0),
+                        sick: 0,
+                        ordainDays: 0,
+                        maternity: 0,
+                        birthday: 0,
+                        unpaid: 0,
+                        annualHolidays: 0,
+                      },
+                    }}
+                    k="business"
+                  />
+
+                  <EntBox
+                    title="Annual"
+                    data={{
+                      entitled: {
+                        vacation: myLeaveRights.vacationLeaveDays ?? 0,
+                        business: 0,
+                        sick: 0,
+                        ordainDays: 0,
+                        maternity: 0,
+                        birthday: 0,
+                        unpaid: 0,
+                        annualHolidays: 0,
+                      },
+                      used: {
+                        vacation: leaveUsed?.ANNUAL ?? 0,
+                        business: 0,
+                        sick: 0,
+                        ordainDays: 0,
+                        maternity: 0,
+                        birthday: 0,
+                        unpaid: 0,
+                        annualHolidays: 0,
+                      },
+                      remaining: {
+                        vacation:
+                          (myLeaveRights.vacationLeaveDays ?? 0) -
+                          (leaveUsed?.ANNUAL ?? 0),
+                        business: 0,
+                        sick: 0,
+                        ordainDays: 0,
+                        maternity: 0,
+                        birthday: 0,
+                        unpaid: 0,
+                        annualHolidays: 0,
+                      },
+                    }}
+                    k="vacation"
+                  />
+
+                  <EntBox
+                    title="Holidays"
+                    data={{
+                      entitled: {
+                        vacation: 0,
+                        business: 0,
+                        sick: 0,
+                        ordainDays: 0,
+                        maternity: 0,
+                        birthday: 0,
+                        unpaid: 0,
+                        annualHolidays: myLeaveRights.holidayLeaveDays ?? 0,
+                      },
+                      used: {
+                        vacation: 0,
+                        business: 0,
+                        sick: 0,
+                        ordainDays: 0,
+                        maternity: 0,
+                        birthday: 0,
+                        unpaid: 0,
+                        annualHolidays: leaveUsed?.ANNUAL_HOLIDAY ?? 0,
+                      },
+                      remaining: {
+                        vacation: 0,
+                        business: 0,
+                        sick: 0,
+                        ordainDays: 0,
+                        maternity: 0,
+                        birthday: 0,
+                        unpaid: 0,
+                        annualHolidays:
+                          (myLeaveRights.holidayLeaveDays ?? 0) -
+                          (leaveUsed?.ANNUAL_HOLIDAY ?? 0),
+                      },
+                    }}
+                    k="annualHolidays"
+                  />
+
+                  <EntBox
+                    title="Unpaid"
+                    data={{
+                      entitled: {
+                        vacation: 0,
+                        business: 0,
+                        sick: 0,
+                        ordainDays: 0,
+                        maternity: 0,
+                        birthday: 0,
+                        unpaid: myLeaveRights.unpaidLeaveDays ?? 0,
+                        annualHolidays: 0,
+                      },
+                      used: {
+                        vacation: 0,
+                        business: 0,
+                        sick: 0,
+                        ordainDays: 0,
+                        maternity: 0,
+                        birthday: 0,
+                        unpaid: leaveUsed?.UNPAID ?? 0,
+                        annualHolidays: 0,
+                      },
+                      remaining: {
+                        vacation: 0,
+                        business: 0,
+                        sick: 0,
+                        ordainDays: 0,
+                        maternity: 0,
+                        birthday: 0,
+                        unpaid:
+                          (myLeaveRights.unpaidLeaveDays ?? 0) -
+                          (leaveUsed?.UNPAID ?? 0),
+                        annualHolidays: 0,
+                      },
+                    }}
+                    k="unpaid"
+                  />
+
+                  <EntBox
+                    title="Birthday"
+                    data={{
+                      entitled: {
+                        vacation: 0,
+                        business: 0,
+                        sick: 0,
+                        ordainDays: 0,
+                        maternity: 0,
+                        birthday: myLeaveRights.birthdayLeaveDays ?? 0,
+                        unpaid: 0,
+                        annualHolidays: 0,
+                      },
+                      used: {
+                        vacation: 0,
+                        business: 0,
+                        sick: 0,
+                        ordainDays: 0,
+                        maternity: 0,
+                        birthday: leaveUsed?.BIRTHDAY ?? 0,
+                        unpaid: 0,
+                        annualHolidays: 0,
+                      },
+                      remaining: {
+                        vacation: 0,
+                        business: 0,
+                        sick: 0,
+                        ordainDays: 0,
+                        maternity: 0,
+                        birthday:
+                          (myLeaveRights.birthdayLeaveDays ?? 0) -
+                          (leaveUsed?.BIRTHDAY ?? 0),
+                        unpaid: 0,
+                        annualHolidays: 0,
+                      },
+                    }}
+                    k="birthday"
+                  />
+
+                  {isMale && (
+                    <EntBox
+                      title="Ordain"
+                      data={{
+                        entitled: {
+                          vacation: 0,
+                          business: 0,
+                          sick: 0,
+                          ordainDays: myLeaveRights.ordainLeaveDays ?? 0,
+                          maternity: 0,
+                          birthday: 0,
+                          unpaid: 0,
+                          annualHolidays: 0,
+                        },
+                        used: {
+                          vacation: 0,
+                          business: 0,
+                          sick: 0,
+                          ordainDays: leaveUsed?.ORDAIN ?? 0,
+                          maternity: 0,
+                          birthday: 0,
+                          unpaid: 0,
+                          annualHolidays: 0,
+                        },
+                        remaining: {
+                          vacation: 0,
+                          business: 0,
+                          sick: 0,
+                          ordainDays:
+                            (myLeaveRights.ordainLeaveDays ?? 0) -
+                            (leaveUsed?.ORDAIN ?? 0),
+                          maternity: 0,
+                          birthday: 0,
+                          unpaid: 0,
+                          annualHolidays: 0,
+                        },
+                      }}
+                      k="ordainDays"
+                    />
+                  )}
+
+                  {isFemale && (
+                    <EntBox
+                      title="Maternity"
+                      data={{
+                        entitled: {
+                          vacation: 0,
+                          business: 0,
+                          sick: 0,
+                          ordainDays: 0,
+                          maternity: myLeaveRights.maternityLeaveDays ?? 0,
+                          birthday: 0,
+                          unpaid: 0,
+                          annualHolidays: 0,
+                        },
+                        used: {
+                          vacation: 0,
+                          business: 0,
+                          sick: 0,
+                          ordainDays: 0,
+                          maternity: leaveUsed?.MATERNITY ?? 0,
+                          birthday: 0,
+                          unpaid: 0,
+                          annualHolidays: 0,
+                        },
+                        remaining: {
+                          vacation: 0,
+                          business: 0,
+                          sick: 0,
+                          ordainDays: 0,
+                          maternity:
+                            (myLeaveRights.maternityLeaveDays ?? 0) -
+                            (leaveUsed?.MATERNITY ?? 0),
+                          birthday: 0,
+                          unpaid: 0,
+                          annualHolidays: 0,
+                        },
+                      }}
+                      k="maternity"
+                    />
+                  )}
+                </div>
+                {leaveUsed?.carryForwardAnnual > 0 && (
+                  <div className="mt-2 text-xs text-yellow-400">
+                    ยอดยกมาจากปีที่แล้ว: {leaveUsed.carryForwardAnnual} วัน
+                    {leaveUsed.carryForwardAnnualExpiry && (
+                      <> (หมดอายุ: {new Date(leaveUsed.carryForwardAnnualExpiry).toLocaleDateString()})</>
+                    )}
+                  </div>
+                )}
+                {leaveUsed?.carryForwardHoliday > 0 && (
+                  <div className="mt-2 text-xs text-yellow-400">
+                    ยอดวันหยุดยกมาจากปีที่แล้ว: {leaveUsed.carryForwardHoliday} วัน
+                    {leaveUsed.carryForwardHolidayExpiry && (
+                      <> (หมดอายุ: {new Date(leaveUsed.carryForwardHolidayExpiry).toLocaleDateString()})</>
+                    )}
+                  </div>
+                )}
+                </>
+              ) : (
+                <p className="text-sm text-[var(--muted)]">
+                  ไม่พบสิทธิวันลาตามระดับของคุณ
+                </p>
+              )}
+
+              {me.employee.levelP && (
+                <p className="mt-2 text-xs text-[var(--muted)]">
+                  อิงสิทธิ์จากระดับ (Level P): <b>{me.employee.levelP}</b>
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* ตารางวันหยุดประจำปี */}
+          <div className="neon-card rounded-2xl p-5">
+            <h2 className="neon-title mb-3 text-lg font-semibold">
               วันหยุดประจำปี (Public Holidays)
             </h2>
-
             {loadingHolidays ? (
               <p className="text-sm text-[var(--muted)]">กำลังโหลดวันหยุด...</p>
             ) : holidaysError ? (
               <p className="text-sm text-red-400">{holidaysError}</p>
             ) : holidays.length === 0 ? (
-              <p className="text-sm text-[var(--muted)]">ยังไม่มีข้อมูลวันหยุด</p>
+              <p className="text-sm text-[var(--muted)]">ไม่มีข้อมูลวันหยุด</p>
             ) : (
-              <div className="max-h-[360px] overflow-auto rounded-xl border border-white/10">
+              <div className="overflow-auto rounded-xl border border-white/10">
                 <table className="w-full text-sm">
                   <thead className="bg-white/5">
                     <tr>
-                      <th className="px-3 py-2 text-left w-12">#</th>
+                      <th className="px-3 py-2 text-left">#</th>
                       <th className="px-3 py-2 text-left">ชื่อวันหยุด</th>
                       <th className="px-3 py-2 text-left">วันที่</th>
                     </tr>
@@ -764,16 +1316,16 @@ useEffect(() => {
                     {holidays.map((h, idx) => (
                       <tr key={h.id} className="odd:bg-white/0 even:bg-white/5">
                         <td className="px-3 py-2">{idx + 1}</td>
-                        <td className="px-3 py-2">
-                          {h.title}
-                        </td>
+                        <td className="px-3 py-2">{h.title}</td>
                         <td className="px-3 py-2">
                           {(() => {
                             const d = new Date(h.date);
-                            if (isNaN(+d)) return h.date; // ถ้า parse ไม่ได้ ให้โชว์ข้อมูลดิบไปก่อน
+                            if (isNaN(+d)) return h.date;
                             const day = d.getDate().toString().padStart(2, "0");
-                            const month = (d.getMonth() + 1).toString().padStart(2, "0");
-                            const year = d.getFullYear() + 543; // แปลงเป็น พ.ศ.
+                            const month = (d.getMonth() + 1)
+                              .toString()
+                              .padStart(2, "0");
+                            const year = d.getFullYear() + 543;
                             return `${day}/${month}/${year}`;
                           })()}
                         </td>
@@ -783,7 +1335,6 @@ useEffect(() => {
                 </table>
               </div>
             )}
-
             <p className="mt-2 text-xs text-[var(--muted)]">
               * ข้อมูลดึงจากฐานข้อมูลจริง (Holiday)
             </p>
@@ -797,6 +1348,20 @@ useEffect(() => {
       />
     </main>
   );
+}
+
+function getLeaveRightsField(leaveType: string) {
+  switch (leaveType) {
+    case "ANNUAL": return "vacationLeaveDays";
+    case "SICK": return "sickLeaveDays";
+    case "BUSINESS": return "businessLeaveDays";
+    case "UNPAID": return "unpaidLeaveDays";
+    case "BIRTHDAY": return "birthdayLeaveDays";
+    case "ORDAIN": return "ordainLeaveDays";
+    case "MATERNITY": return "maternityLeaveDays";
+    case "ANNUAL_HOLIDAY": return "holidayLeaveDays";
+    default: return "";
+  }
 }
 
 /* ---------- Reusable Input ---------- */
@@ -834,59 +1399,78 @@ function Input({
     </label>
   );
 }
-  function EntBox({
-    title,
-    data,
-    k,
-  }: {
-    title: string;
-    data: {
-      entitled:  {
-        vacation:number; business:number; sick:number;
-        ordainDays:number; maternity:number; birthday:number; unpaid:number;
-        annualHolidays:number;
-      };
-      used:      {
-        vacation:number; business:number; sick:number;
-        ordainDays:number; maternity:number; birthday:number; unpaid:number;
-        annualHolidays:number;
-      };
-      remaining: {
-        vacation:number; business:number; sick:number;
-        ordainDays:number; maternity:number; birthday:number; unpaid:number;
-        annualHolidays:number;
-      };
+function EntBox({
+  title,
+  data,
+  k,
+}: {
+  title: string;
+  data: {
+    entitled: {
+      vacation: number;
+      business: number;
+      sick: number;
+      ordainDays: number;
+      maternity: number;
+      birthday: number;
+      unpaid: number;
+      annualHolidays: number;
     };
-    k:
-      | "vacation"
-      | "business"
-      | "sick"
-      | "ordainDays"
-      | "maternity"
-      | "birthday"
-      | "unpaid"
-      | "annualHolidays";
-  }) {
-      const total = data.entitled[k] ?? 0;
-      const used  = data.used[k] ?? 0;
-      const left  = data.remaining[k] ?? Math.max(0, total - used);
-      const pct   = total > 0 ? Math.min(100, Math.round((used / total) * 100)) : 0;
+    used: {
+      vacation: number;
+      business: number;
+      sick: number;
+      ordainDays: number;
+      maternity: number;
+      birthday: number;
+      unpaid: number;
+      annualHolidays: number;
+    };
+    remaining: {
+      vacation: number;
+      business: number;
+      sick: number;
+      ordainDays: number;
+      maternity: number;
+      birthday: number;
+      unpaid: number;
+      annualHolidays: number;
+    };
+  };
+  k:
+    | "vacation"
+    | "business"
+    | "sick"
+    | "ordainDays"
+    | "maternity"
+    | "birthday"
+    | "unpaid"
+    | "annualHolidays";
+}) {
+  const total = data.entitled[k] ?? 0;
+  const used = data.used[k] ?? 0;
+  const left = data.remaining[k] ?? Math.max(0, total - used);
+  const pct = total > 0 ? Math.min(100, Math.round((used / total) * 100)) : 0;
 
-      return (
-        <div className="rounded-xl border border-white/10 p-2 sm:p-3">
-          <div className="mb-1 text-xs sm:text-sm opacity-80 truncate" title={title}>{title}</div>
-          <div className="flex items-baseline gap-1 sm:gap-2">
-            <span className="text-lg sm:text-2xl font-bold">{left}</span>
-          </div>
-          <div className="mt-2 h-1.5 sm:h-2 w-full rounded bg-white/10">
-            <div
-              className="h-1.5 sm:h-2 rounded bg-[var(--cyan)]"
-              style={{ width: `${pct}%` }}
-              aria-label={`${pct}% used`}
-            />
-          </div>
-          <div className="mt-2 text-xs text-[var(--muted)]">ใช้ไป {used}</div>
-        </div>
-      );
-    }
-
+  return (
+    <div className="rounded-xl border border-white/10 p-2 sm:p-3">
+      <div
+        className="mb-1 text-xs sm:text-sm opacity-80 truncate"
+        title={title}
+      >
+        {title}
+      </div>
+      <div className="flex items-baseline gap-1 sm:gap-2">
+        <span className="text-lg sm:text-2xl font-bold">{left}</span>
+      </div>
+      <div className="mt-2 h-1.5 sm:h-2 w-full rounded bg-white/10">
+        <div
+          className="h-1.5 sm:h-2 rounded bg-[var(--cyan)]"
+          style={{ width: `${pct}%` }}
+          aria-label={`${pct}% used`}
+        />
+      </div>
+      <div className="mt-2 text-xs text-[var(--muted)]">ใช้ไป {used}</div>
+    </div>
+  );
+}

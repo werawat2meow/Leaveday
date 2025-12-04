@@ -19,13 +19,30 @@ export function isWeekend(d: Date) {
 export function isHoliday(d: Date, holidays: Set<string>) {
   return holidays.has(ymd(d));
 }
-export function countBusinessDays(from: Date, to: Date, session: HalfSession, holidays: Set<string>) {
+
+export function isWeekyHoliday(d: Date, weeklyHoliday: string) {
+  // weeklyHoliday เช่น "อาทิตย์", "จันทร์", ...
+  const daysMap: Record<string, number> = {
+    "อาทิตย์": 0, "sunday": 0,
+    "จันทร์": 1, "monday": 1,
+    "อังคาร": 2, "tuesday": 2,
+    "พุธ": 3, "wednesday": 3,
+    "พฤหัสบดี": 4, "thursday": 4,
+    "ศุกร์": 5, "friday": 5,
+    "เสาร์": 6, "saturday": 6,
+  };
+  const key = weeklyHoliday.trim().replace(/^วัน/, "").toLowerCase();
+  return d.getDay() === daysMap[key] || d.getDay() === daysMap[weeklyHoliday.trim().toLowerCase()];
+}
+
+export function countBusinessDays(from: Date, to: Date, session: HalfSession, holidays: Set<string>, weeklyHoliday?: string) {
   if (to < from) return 0;
   let days = 0;
   for (let dt = new Date(from); dt <= to; dt.setDate(dt.getDate() + 1)) {
     const d = new Date(dt);
     // สำหรับบริษัททัวร์: ทำงานทุกวัน ยกเว้นวันหยุดที่กำหนดใน Holiday table เท่านั้น
-    if (isHoliday(d, holidays)) continue;
+    // if (isHoliday(d, holidays)) continue;
+    if (weeklyHoliday && isWeekyHoliday(d, weeklyHoliday)) continue;
     days += 1;
   }
   if (session !== "FULL") {
@@ -36,3 +53,4 @@ export function countBusinessDays(from: Date, to: Date, session: HalfSession, ho
   }
   return days;
 }
+

@@ -119,25 +119,18 @@ model Employee {
   department     String? // แผนก
   division       String? // ฝ่าย
   unit           String? // หน่วย
+  position       String? // ตำแหน่ง
   levelP         String?
   lineId         String?
   startDate      DateTime?
   weeklyHoliday  String? // วันหยุดประจำสัปดาห์ (เช่น "อาทิตย์")
-  // สิทธิ์ลา (ตัวเลขวัน)
-  vacationDays   Int       @default(0) // ลาพักร้อน
-  businessDays   Int       @default(0) // ลากิจ
-  sickDays       Int       @default(0) // ลาป่วย
-  ordainDays     Int       @default(0) // ลาบวช
-  maternityDays  Int       @default(0) // ลาคลอด
-  unpaidDays     Int       @default(0) // ลาไม่รับค่าจ้าง
-  birthdayDays   Int       @default(0) // ลาวันเกิด
-  annualHolidays Int       @default(0) // วันหยุดประจำปี
 
   photoUrl String?
 
   // ผูกกับ user (ถ้าต้องการ)
   userId Int?  @unique
   user   User? @relation(fields: [userId], references: [id])
+  leaveRights LeaveRights[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -145,17 +138,6 @@ model Employee {
   @@index([empNo])
 }
 
-model LeaveRight {
-  id        Int      @id @default(autoincrement())
-  level     String   @unique
-  vacation  Int      @default(0)
-  business  Int      @default(0)
-  sick      Int      @default(0)
-  active    Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  @@index([level])
-}
 
 model Holiday {
   id         Int       @id @default(autoincrement())
@@ -194,3 +176,38 @@ model Approver {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 }
+
+model LeaveRights {
+  id                        Int      @id @default(autoincrement())
+  employeeId                Int
+  year                      Int
+    annualLeave               Int
+    carryForwardAnnual        Int      @default(0)
+    carryForwardAnnualExpiry  DateTime?
+    holidayLeave              Int
+    carryForwardHoliday       Int      @default(0)
+    carryForwardHolidayExpiry DateTime?
+    vacationLeave             Int      @default(0)
+    businessLeave             Int      @default(0)
+    sickLeave                 Int      @default(0)
+    ordainLeave               Int      @default(0)
+    maternityLeave            Int      @default(0)
+    unpaidLeave               Int      @default(0)
+    birthdayLeave             Int      @default(0)
+  employee                  Employee @relation(fields: [employeeId], references: [id])
+}
+
+model LeaveRightsTemplate {
+  id                  Int    @id @default(autoincrement())
+  prefix              String
+    maternityLeaveDays  Int
+    ordainLeaveDays     Int
+    annualLeaveDays     Int
+    holidayLeaveDays    Int
+    vacationLeaveDays   Int
+    businessLeaveDays   Int
+    sickLeaveDays       Int
+    unpaidLeaveDays     Int
+    birthdayLeaveDays   Int
+}
+

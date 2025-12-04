@@ -1,68 +1,117 @@
-// src/app/api/leave-rights/route.ts
 import { NextResponse } from "next/server";
-import { PrismaClient } from "@prisma/client";
-// (ถ้าต้องการ guard role ค่อยผูก getServerSession + authOptions ทีหลัง)
-const prisma = new PrismaClient();
+import { prisma } from "@/lib/prisma";
 
-type RowDTO = { level: string; vacation: number | ""; business: number | ""; sick: number | ""; active?: boolean };
-
+// GET: ดึง leave rights template ทั้งหมด (สิทธิ์การลาตามตำแหน่ง default)
 export async function GET(req: Request) {
-  try {
-    const { searchParams } = new URL(req.url);
-    const level = searchParams.get("level");
+  const { searchParams } = new URL(req.url);
+  const prefix = searchParams.get("prefix");
+  if (prefix) {
+    const template = await prisma.leaveRightsTemplate.findFirst({ where: { prefix } });
+    if (!template) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
+    return NextResponse.json({ data: template });
+  }
+  // ส่งข้อมูล field ตาม schema (ทั้งหมด)
+  const templates = await prisma.leaveRightsTemplate.findMany();
+  return NextResponse.json({ data: templates });
+}
 
-    if (level) {
-      const row = await prisma.leaveRight.findUnique({ where: { level } });
-      if (!row) return NextResponse.json({ message: "not found", data: null }, { status: 404 });
-      return NextResponse.json({ message: "success", data: row });
+// PUT: อัปเดต leave rights template (default สิทธิ์การลาตามตำแหน่ง)
+export async function PUT(req: Request) {
+  try {
+    const { rows } = await req.json();
+    // 1. ลบข้อมูลที่ไม่มีใน rows
+    const ids = rows
+      .filter((r: any) => r.id)
+      .map((r: any) => Number(r.id))
+      .filter((id: number) => !isNaN(id));
+    if (ids.length > 0) {
+      await prisma.leaveRightsTemplate.deleteMany({
+        where: { id: { notIn: ids } },
+      });
+    } else {
+      await prisma.leaveRightsTemplate.deleteMany({});
     }
 
-    const rows = await prisma.leaveRight.findMany({
-      where: { active: true },
-      orderBy: { level: "asc" },
-    });
-    return NextResponse.json({ data: rows });
+    // 2. update ที่ id เดิม, create สำหรับรายการใหม่
+    for (const r of rows) {
+      const id = r.id ? Number(r.id) : undefined;
+      if (id) {
+        await prisma.leaveRightsTemplate.update({
+          where: { id },
+          data: {
+            prefix: r.level,
+            maternityLeaveDays: r.maternity === undefined ? 0 : Number(r.maternity),
+            ordainLeaveDays: r.ordain === undefined ? 0 : Number(r.ordain),
+            annualLeaveDays: r.annualHoliday === undefined ? 0 : Number(r.annualHoliday),
+            holidayLeaveDays: r.annualHoliday === undefined ? 0 : Number(r.annualHoliday),
+            vacationLeaveDays: r.vacation === undefined ? 0 : Number(r.vacation),
+            businessLeaveDays: r.business === undefined ? 0 : Number(r.business),
+            sickLeaveDays: r.sick === undefined ? 0 : Number(r.sick),
+            unpaidLeaveDays: r.unpaid === undefined ? 0 : Number(r.unpaid),
+            birthdayLeaveDays: r.birthday === undefined ? 0 : Number(r.birthday),
+          },
+        });
+      } else {
+        await prisma.leaveRightsTemplate.create({
+          data: {
+            prefix: r.level,
+            maternityLeaveDays: r.maternity === undefined ? 0 : Number(r.maternity),
+            ordainLeaveDays: r.ordain === undefined ? 0 : Number(r.ordain),
+            annualLeaveDays: r.annualHoliday === undefined ? 0 : Number(r.annualHoliday),
+            holidayLeaveDays: r.annualHoliday === undefined ? 0 : Number(r.annualHoliday),
+            vacationLeaveDays: r.vacation === undefined ? 0 : Number(r.vacation),
+            businessLeaveDays: r.business === undefined ? 0 : Number(r.business),
+            sickLeaveDays: r.sick === undefined ? 0 : Number(r.sick),
+            unpaidLeaveDays: r.unpaid === undefined ? 0 : Number(r.unpaid),
+            birthdayLeaveDays: r.birthday === undefined ? 0 : Number(r.birthday),
+          },
+        });
+      }
+    }
+    // ดึงข้อมูลใหม่กลับไปให้ client
+    const refreshed = await prisma.leaveRightsTemplate.findMany();
+    return NextResponse.json({ data: refreshed, message: "บันทึกแล้ว" });
   } catch (e) {
-    console.error(e);
-    return NextResponse.json({ message: "Server error" }, { status: 500 });
+    console.error("API leave-rights PUT error:", e);
+    return NextResponse.json({ error: String(e) }, { status: 500 });
   }
 }
 
-export async function PUT(req: Request) {
+export async function POST(req: NextResponse) {
   try {
-    const body = (await req.json()) as { rows: RowDTO[] };
-    if (!Array.isArray(body?.rows)) return NextResponse.json({ message: "Invalid body" }, { status: 400 });
+    const { employeeId, year, annualLeave, holidayLeave, ...otherFields } = await req.json();
 
-    const normalized = body.rows
-      .map(r => ({
-        level: (r.level || "").trim(),
-        vacation: r.vacation === "" ? 0 : Number(r.vacation ?? 0),
-        business: r.business === "" ? 0 : Number(r.business ?? 0),
-        sick: r.sick === "" ? 0 : Number(r.sick ?? 0),
-        active: r.active ?? true,
-      }))
-      .filter(r => r.level.length > 0);
+    // ดึง LeaveRights ของปีที่แล้ว
+    const lastYearRights = await prisma.leaveRights.findFirst({
+      where: { employeeId, year: year - 1 },
+    });
 
-    const levels = normalized.map(r => r.level);
+    //คำนวณ carry forward (ถ้ามี)
+    const carryForwardAnnual = lastYearRights?.annualLeave ?? 0;
+    const carryForwardHoliday = lastYearRights?.holidayLeave ?? 0;
+    const carryForwardAnnualExpiry = new Date(`${year}-12-31`); // ตัวอย่างวันหมดอายุ
+    const carryForwardHolidayExpiry = new Date(`${year}-12-31`);
 
-    await prisma.$transaction([
-      ...normalized.map(r =>
-        prisma.leaveRight.upsert({
-          where: { level: r.level },
-          update: { vacation: r.vacation, business: r.business, sick: r.sick, active: r.active },
-          create: { level: r.level, vacation: r.vacation, business: r.business, sick: r.sick, active: r.active },
-        })
-      ),
-      // ถ้าอยาก "ลบจริง"
-      prisma.leaveRight.deleteMany({ where: { level: { notIn: levels } } }),
-      // ถ้าอยาก "soft delete" แทน ให้คอมเมนต์บรรทัดบน แล้วใช้บรรทัดล่างแทน:
-      // prisma.leaveRight.updateMany({ where: { level: { notIn: levels } }, data: { active: false } }),
-    ]);
+    // สร้าง LeaveRights สำหรับปีใหม่
+    const newRights = await prisma.leaveRights.create({
+      data: {
+        employeeId,
+        year,
+        annualLeave,
+        holidayLeave,
+        carryForwardAnnual,
+        carryForwardAnnualExpiry,
+        carryForwardHoliday,
+        carryForwardHolidayExpiry,
+        ...otherFields,
+      },
+    });
 
-    const refreshed = await prisma.leaveRight.findMany({ orderBy: { level: "asc" } });
-    return NextResponse.json({ message: `Saved ${normalized.length} rows`, data: refreshed });
-  } catch (e) {
-    console.error(e);
-    return NextResponse.json({ message: "Server error" }, { status: 500 });
+    return NextResponse.json({ ok: true, data: newRights });
+  } catch (error) {
+    console.error("POST /api/leave-rights error:", error);
+    return NextResponse.json({ error: "internal error" }, { status: 500 });
   }
 }

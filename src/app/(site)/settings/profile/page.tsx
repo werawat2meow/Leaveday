@@ -15,6 +15,7 @@ type EmployeeForm = {
   department?: string;
   division?: string;
   unit?: string;
+  position?: string;
   levelP?: string;
   lineId?: string;
   startDate?: string;
@@ -43,6 +44,7 @@ function mapEmployeeToForm(e: any): EmployeeForm {
     department: e.department ?? "",
     division: e.division ?? "",
     unit: e.unit ?? "",
+    position: e.position ?? "",
     levelP: e.levelP ?? "",
     lineId: e.lineId ?? "",
     startDate: e.startDate ? String(e.startDate).slice(0, 10) : "",
@@ -99,6 +101,7 @@ export default function ProfileSettingsPage() {
     empNo: "",
     firstName: "",
     lastName: "",
+    position: "",
   });
   const [saving, setSaving] = useState(false);
   const [importing, setImporting] = useState(false);
@@ -232,6 +235,7 @@ function handlePickEmployee(e: Employee) {
       department: "",
       division: "",
       unit: "",
+      position: "",
       levelP: "",
       lineId: "",
       startDate: "",
@@ -394,33 +398,17 @@ function handlePickEmployee(e: Employee) {
             value={form.division ?? ""} onChange={v => setF({ division: v })}/>
           <Field label="หน่วย" placeholder="หน่วย"
             value={form.unit ?? ""} onChange={v => setF({ unit: v })}/>
+            <Field label="ตำแหน่ง" placeholder="ตำแหน่ง"
+              value={form.position ?? ""} onChange={v => setF({ position: v })}/>
 
           <Field label="Level P" placeholder="P1 / P2 / P3 ..."
             value={form.levelP ?? ""} onChange={v => setF({ levelP: v })}/>
-          <Field label="สิทธิ์ลาป่วย" placeholder="(อายุงาน + ตำแหน่ง)"
-            value={form.sickDays ?? 0} onChange={v => setF({ sickDays: v === "" ? 0 : Number(v) })}/>
-          <Field label="สิทธิ์ลาพักร้อน" placeholder="(อายุงาน + ตำแหน่ง)"
-            value={form.vacationDays ?? 0} onChange={v => setF({ vacationDays: v === "" ? 0 : Number(v) })}/>
-
-          <Field label="สิทธิ์ลากิจ" placeholder="(อายุงาน + ตำแหน่ง)"
-            value={form.businessDays ?? 0} onChange={v => setF({ businessDays: v === "" ? 0 : Number(v) })}/>
-          <Field label="สิทธิ์ลาบวช" placeholder="จำนวนวัน"
-            value={form.ordainDays ?? 0} onChange={v => setF({ ordainDays: v === "" ? 0 : Number(v) })}/>
-          <Field label="สิทธิ์ลาคลอด" placeholder="จำนวนวัน"
-            value={form.maternityDays ?? 0} onChange={v => setF({ maternityDays: v === "" ? 0 : Number(v) })}/>
-
-          <Field label="ลาโดยไม่ได้รับค่าจ้าง" placeholder="จำนวนวัน"
-            value={form.unpaidDays ?? 0} onChange={v => setF({ unpaidDays: v === "" ? 0 : Number(v) })}/>
-          <Field label="ลาวันเกิด" placeholder="จำนวนวัน"
-            value={form.birthdayDays ?? 0} onChange={v => setF({ birthdayDays: v === "" ? 0 : Number(v) })}/>
-          <Field label="วันหยุดประจำปี" placeholder="(จำนวนวัน)"
-            value={form.annualHolidays ?? 0} onChange={v => setF({ annualHolidays: v === "" ? 0 : Number(v) })}/>
 
           <Field label="Line ID" placeholder="@line id"
             value={form.lineId ?? ""} onChange={v => setF({ lineId: v })}/>
           <Field label="เริ่มงานวันที่" type="date"
             value={form.startDate ?? ""} onChange={v => setF({ startDate: v })}/>
-          <Field label="วันหยุดประจำสัปดาห์ (Default)" placeholder="ตัวอย่าง วันอาทิตย์"
+          <Field label="วันหยุดประจำสัปดาห์ (Default)" placeholder="ตัวอย่าง อาทิตย์"
             value={form.weeklyHoliday ?? ""} onChange={v => setF({ weeklyHoliday: v })} />
           <Field label="Email" placeholder="Emp001@company.com" type="email"
             value={form.email ?? ""} onChange={v => setF({ email: v })}/>

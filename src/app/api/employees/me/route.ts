@@ -78,24 +78,45 @@ export async function GET() {
   // --- ถ้าหา employee พบแล้ว โค้ดส่วนที่เหลือจะทำงานต่อตามปกติ ---
   console.log("Employee found successfully. Processing entitlements.");
 const toN = (x: any) => (typeof x === "number" && isFinite(x) ? x : 0);
-  // 2) สิทธิ์: ถ้ามี LeaveRight ของ levelP ใช้อันนั้น ไม่งั้นใช้ fields ใน Employee เอง
+  // 2) สิทธิ์: ถ้ามี LeaveRights ของ levelP ใช้อันนั้น ไม่งั้นใช้ LeaveRightsTemplate ตาม prefix
   let entitled: Entitlement = {
-    vacation:        toN(employee.vacationDays),
-    business:        toN(employee.businessDays),
-    sick:            toN(employee.sickDays),
-    ordainDays:      toN(employee.ordainDays),
-    maternity:       toN(employee.maternityDays),
-    birthday:        toN(employee.birthdayDays),
-    unpaid:          toN(employee.unpaidDays),
-    annualHolidays:  toN(employee.annualHolidays),
+    vacation: 0,
+    business: 0,
+    sick: 0,
+    ordainDays: 0,
+    maternity: 0,
+    birthday: 0,
+    unpaid: 0,
+    annualHolidays: 0,
   };
 
+  // ถ้ามี LeaveRights ของ levelP (สิทธิ์จริง)
   if (employee.levelP) {
-    const lr = await prisma.leaveRight.findUnique({ where: { level: employee.levelP } });
+    const lr = await prisma.leaveRights.findFirst({ where: { employeeId: employee.id, year: new Date().getFullYear() } });
     if (lr) {
-      entitled.vacation = toN(lr.vacation);
-      entitled.business = toN(lr.business);
-      entitled.sick     = toN(lr.sick);
+      entitled.vacation = toN(lr.vacationLeave);
+      entitled.business = toN(lr.businessLeave);
+      entitled.sick     = toN(lr.sickLeave);
+      entitled.ordainDays = toN(lr.ordainLeave);
+      entitled.maternity  = toN(lr.maternityLeave);
+      entitled.birthday   = toN(lr.birthdayLeave);
+      entitled.unpaid     = toN(lr.unpaidLeave);
+      entitled.annualHolidays = toN(lr.holidayLeave);
+    }
+  }
+
+  // ถ้าไม่มี LeaveRights ให้ fallback เป็น LeaveRightsTemplate ตาม prefix
+  if ((entitled.vacation + entitled.business + entitled.sick) === 0 && employee.prefix) {
+    const template = await prisma.leaveRightsTemplate.findFirst({ where: { prefix: employee.prefix } });
+    if (template) {
+      entitled.vacation = toN(template.vacationLeaveDays);
+      entitled.business = toN(template.businessLeaveDays);
+      entitled.sick     = toN(template.sickLeaveDays);
+      entitled.ordainDays = toN(template.ordainLeaveDays);
+      entitled.maternity  = toN(template.maternityLeaveDays);
+      entitled.birthday   = toN(template.birthdayLeaveDays);
+      entitled.unpaid     = toN(template.unpaidLeaveDays);
+      entitled.annualHolidays = toN(template.holidayLeaveDays);
     }
   }
 

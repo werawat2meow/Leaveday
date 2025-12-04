@@ -7,6 +7,11 @@ type LeaveRow = {
   vacation: number | "";
   business: number | "";
   sick: number | "";
+  ordain: number | "";
+  maternity: number | "";
+  unpaid: number | "";
+  birthday: number | "";
+  annualHoliday: number | "";
 };
 
 const makeRow = (pNumber: number): LeaveRow => ({
@@ -15,10 +20,16 @@ const makeRow = (pNumber: number): LeaveRow => ({
   vacation: "",
   business: "",
   sick: "",
+  ordain: "",
+  maternity: "",
+  unpaid: "",
+  birthday: "",
+  annualHoliday: "",
 });
 
-// ดึงเลข P (เช่น "P12" -> 12)
-const getPnum = (level: string) => {
+// ดึงเลข P (เช่น "P12" -> 12) ป้องกัน level undefined
+const getPnum = (level: string | undefined) => {
+  if (!level) return NaN;
   const m = level.match(/\d+/);
   return m ? parseInt(m[0], 10) : NaN;
 };
@@ -48,16 +59,33 @@ export default function LeaveRightsPage() {
         const res = await fetch("/api/leave-rights", { cache: "no-store" });
         if (res.ok) {
           const data = await res.json();
-          const fromDb = (data?.data ?? []) as Array<{ level: string; vacation: number; business: number; sick: number }>;
+          // map ข้อมูลจาก LeaveRightsTemplate ให้ตรงกับ LeaveRow
+          const fromDb = (data?.data ?? []) as Array<{
+            id: number;
+            prefix: string;
+            vacationLeaveDays?: number;
+            businessLeaveDays?: number;
+            sickLeaveDays?: number;
+            ordainLeaveDays?: number;
+            maternityLeaveDays?: number;
+            unpaidLeaveDays?: number;
+            birthdayLeaveDays?: number;
+            annualLeaveDays?: number;
+          }>;
           if (Array.isArray(fromDb) && fromDb.length > 0) {
             setRows(
               sortByP(
-                fromDb.map((r, i) => ({
-                  id: `${Date.now()}-${i}`,
-                  level: r.level,
-                  vacation: r.vacation ?? "",
-                  business: r.business ?? "",
-                  sick: r.sick ?? "",
+                fromDb.map((r) => ({
+                  id: String(r.id), // แปลง id เป็น string
+                  level: r.prefix,
+                  vacation: r.vacationLeaveDays ?? "",
+                  business: r.businessLeaveDays ?? "",
+                  sick: r.sickLeaveDays ?? "",
+                  ordain: r.ordainLeaveDays ?? "",
+                  maternity: r.maternityLeaveDays ?? "",
+                  unpaid: r.unpaidLeaveDays ?? "",
+                  birthday: r.birthdayLeaveDays ?? "",
+                  annualHoliday: r.annualLeaveDays ?? "",
                 }))
               )
             );
@@ -94,10 +122,16 @@ export default function LeaveRightsPage() {
     setSaving(true);
     try {
       const payload = rows.map((r) => ({
-        level: r.level.trim(), // level ถูกล็อก ไม่ให้แก้อยู่แล้ว
+        id: r.id,
+        level: r.level.trim(),
         vacation: r.vacation === "" ? 0 : Number(r.vacation),
         business: r.business === "" ? 0 : Number(r.business),
         sick: r.sick === "" ? 0 : Number(r.sick),
+        ordain: r.ordain === "" ? 0 : Number(r.ordain),
+        maternity: r.maternity === "" ? 0 : Number(r.maternity),
+        unpaid: r.unpaid === "" ? 0 : Number(r.unpaid),
+        birthday: r.birthday === "" ? 0 : Number(r.birthday),
+        annualHoliday: r.annualHoliday === "" ? 0 : Number(r.annualHoliday),
       }));
 
       localStorage.setItem(LS_KEY, JSON.stringify(rows));
@@ -111,19 +145,25 @@ export default function LeaveRightsPage() {
       if (!res.ok) throw new Error("Save failed");
 
       const data = await res.json();
-      const refreshed = (data?.data ?? []) as Array<{ level: string; vacation: number; business: number; sick: number }>;
-      setRows(
-        sortByP(
-          refreshed.map((r, i) => ({
-            id: `${Date.now()}-${i}`,
-            level: r.level,
-            vacation: r.vacation ?? "",
-            business: r.business ?? "",
-            sick: r.sick ?? "",
-          }))
-        )
-      );
-
+      // map ข้อมูลกลับเข้า rows ทันทีหลังบันทึก
+      if (data?.data) {
+        setRows(
+          sortByP(
+            data.data.map((r: any) => ({
+              id: String(r.id),
+              level: r.prefix,
+              vacation: r.vacationLeaveDays ?? "",
+              business: r.businessLeaveDays ?? "",
+              sick: r.sickLeaveDays ?? "",
+              ordain: r.ordainLeaveDays ?? "",
+              maternity: r.maternityLeaveDays ?? "",
+              unpaid: r.unpaidLeaveDays ?? "",
+              birthday: r.birthdayLeaveDays ?? "",
+              annualHoliday: r.annualLeaveDays ?? "",
+            }))
+          )
+        );
+      }
       setToast({ type: "success", msg: data?.message || `บันทึกแล้ว ${payload.length} รายการ` });
     } catch (e) {
       console.error(e);
@@ -146,39 +186,27 @@ export default function LeaveRightsPage() {
             role="group"
             aria-label={`แถวที่ ${idx + 1}`}
           >
-            <div className="md:col-span-11 grid grid-cols-1 md:grid-cols-4 gap-3 md:gap-3">
-              {/* ช่อง Level P (ล็อกแก้ไข) */}
-              <Field
-                label="Level P"
-                placeholder=""
-                value={row.level}
-                readOnly
-                disabled
-              />
-              <Field
-                label="ลาพักร้อน"
-                type="number"
-                placeholder="จำนวนวัน"
-                value={row.vacation}
-                onChange={(v) => updateRow(row.id, { vacation: v === "" ? "" : Number(v) })}
-                inputProps={{ min: 0 }}
-              />
-              <Field
-                label="ลากิจ"
-                type="number"
-                placeholder="จำนวนวัน"
-                value={row.business}
-                onChange={(v) => updateRow(row.id, { business: v === "" ? "" : Number(v) })}
-                inputProps={{ min: 0 }}
-              />
-              <Field
-                label="ลาป่วย"
-                type="number"
-                placeholder="จำนวนวัน"
-                value={row.sick}
-                onChange={(v) => updateRow(row.id, { sick: v === "" ? "" : Number(v) })}
-                inputProps={{ min: 0 }}
-              />
+            <div className="md:col-span-11 flex flex-col gap-2">
+              <div className="grid grid-cols-1 md:grid-cols-6 gap-3 md:gap-3">
+                {/* ช่อง Level P (ล็อกแก้ไข) */}
+                <Field
+                  label="Level P"
+                  placeholder=""
+                  value={row.level}
+                  readOnly
+                  disabled
+                />
+                <Field label="ลาพักร้อน" type="number" placeholder="จำนวนวัน" value={row.vacation} onChange={(v) => updateRow(row.id, { vacation: v === "" ? "" : Number(v) })} inputProps={{ min: 0 }} />
+                <Field label="ลากิจ" type="number" placeholder="จำนวนวัน" value={row.business} onChange={(v) => updateRow(row.id, { business: v === "" ? "" : Number(v) })} inputProps={{ min: 0 }} />
+                <Field label="ลาป่วย" type="number" placeholder="จำนวนวัน" value={row.sick} onChange={(v) => updateRow(row.id, { sick: v === "" ? "" : Number(v) })} inputProps={{ min: 0 }} />
+                <Field label="ลาบวช" type="number" placeholder="จำนวนวัน" value={row.ordain} onChange={(v) => updateRow(row.id, { ordain: v === "" ? "" : Number(v) })} inputProps={{ min: 0 }} />
+                <Field label="ลาคลอด" type="number" placeholder="จำนวนวัน" value={row.maternity} onChange={(v) => updateRow(row.id, { maternity: v === "" ? "" : Number(v) })} inputProps={{ min: 0 }} />
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 md:gap-3">
+                <Field label="ลาไม่รับค่าจ้าง" type="number" placeholder="จำนวนวัน" value={row.unpaid} onChange={(v) => updateRow(row.id, { unpaid: v === "" ? "" : Number(v) })} inputProps={{ min: 0 }} />
+                <Field label="ลาวันเกิด" type="number" placeholder="จำนวนวัน" value={row.birthday} onChange={(v) => updateRow(row.id, { birthday: v === "" ? "" : Number(v) })} inputProps={{ min: 0 }} />
+                <Field label="วันหยุดประจำปี" type="number" placeholder="จำนวนวัน" value={row.annualHoliday} onChange={(v) => updateRow(row.id, { annualHoliday: v === "" ? "" : Number(v) })} inputProps={{ min: 0 }} />
+              </div>
             </div>
 
             <div className="md:col-span-1 flex md:justify-end md:self-center pt-5">

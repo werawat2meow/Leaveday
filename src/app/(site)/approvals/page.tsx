@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useState, useRef } from "react";
 import SignatureCanvas from "react-signature-canvas";
 import SignaturePad from "signature_pad";
+import EmployeeLeaveHistoryModal from "@/components/EmployeeLeaveHistoryModal";
+import LeaveCalendarModal from "@/components/LeaveCalendarModal";
 
 /* ---------------- Types ---------------- */
 type LeaveStatus = "PENDING" | "APPROVED" | "REJECTED";
@@ -95,6 +97,59 @@ export default function ApprovalsPage() {
 
   // toast
   const [toast, setToast] = useState<{ type: "success" | "error"; msg: string } | null>(null);
+
+  const [showHistoryModal, setShowHistoryModal] = useState(false);
+  const [showCalendarModal, setShowCalendarModal] = useState(false);
+
+  // leaveHistory สำหรับ modal (ทุกคนในแผนก)
+  const [modalLeaveHistory, setModalLeaveHistory] = useState<LeaveRequest[]>([]);
+
+  // ดึง leave ทุกคนในแผนกเมื่อเปิด modal
+  useEffect(() => {
+    if (!showHistoryModal) return;
+    // TODO: เปลี่ยน 'IT' เป็นชื่อแผนกจริงที่ต้องการ filter
+    fetch('/api/leaves/all?department=IT')
+      .then(res => res.json())
+      .then(json => {
+        // map ให้ตรงกับ LeaveRequest ที่ modal ใช้ (เพิ่ม approverName, handoverTo)
+        const mapped = (json.data || []).map((l: any) => ({
+          id: l.id,
+          userId: l.userId,
+          kind: l.kind,
+          startDate: l.startDate,
+          endDate: l.endDate,
+          reason: l.reason,
+          status: l.status,
+          approverReason: l.approverReason,
+          approverSignature: l.approverSignature,
+          approverName: l.approverName || l.approver?.name || l.approver || '',
+          handoverTo: l.handoverTo || '',
+          createdAt: l.createdAt,
+          user: {
+            name: l.user?.name,
+            employee: {
+              empNo: l.user?.employee?.empNo || '',
+              firstName: l.user?.employee?.firstName || '',
+              lastName: l.user?.employee?.lastName || '',
+              org: l.user?.employee?.org || '',
+              department: l.user?.employee?.department || '',
+              division: l.user?.employee?.division || '',
+              unit: l.user?.employee?.unit || '',
+              levelP: l.user?.employee?.levelP || '',
+            }
+          }
+        }));
+        setModalLeaveHistory(mapped);
+      });
+  }, [showHistoryModal]);
+
+  // Debug log: จำนวน leave request ที่ modal ได้รับ
+  useEffect(() => {
+    if (showHistoryModal) {
+      console.log('[Modal] leaveHistory count:', data.length);
+      console.log('[Modal] leaveHistory:', data);
+    }
+  }, [showHistoryModal, data]);
 
   // load data from API
   useEffect(() => {
@@ -277,7 +332,37 @@ export default function ApprovalsPage() {
 
   return (
     <section className="neon-card rounded-2xl p-6 text-slate-900 dark:text-slate-100">
-      <h2 className="neon-title text-lg font-semibold">รายการคำขอลา</h2>
+      <div className="flex items-center justify-between">
+        <h2 className="neon-title text-lg font-semibold text-slate-900 dark:text-slate-100">รายการคำขอลา</h2>
+          <div className="flex gap-2">
+            <button
+              className="rounded-lg px-4 py-2 bg-yellow-200 text-yellow-900 hover:bg-yellow-300 border border-yellow-300 dark:bg-yellow-900/30 dark:text-yellow-200 dark:hover:bg-yellow-800"
+              onClick={() => { setShowHistoryModal(true) }}
+            >
+              ดูประวัติการลา
+            </button>
+            <button
+              className="rounded-lg px-4 py-2 bg-orange-300 text-orange-900 hover:bg-orange-400 border border-orange-400 dark:bg-orange-900/30 dark:text-orange-200 dark:hover:bg-orange-800"
+              onClick={() => setShowCalendarModal(true)}
+            >
+              ดูปฏิทินภาพรวม
+            </button>
+          </div>
+      </div>
+      {/* Debug: log leaveHistory prop before rendering modal */}
+      {showHistoryModal && (
+        (() => { console.log('[Modal] leaveHistory (modalLeaveHistory):', modalLeaveHistory); return null; })()
+      )}
+      <EmployeeLeaveHistoryModal
+        open={showHistoryModal}
+        onClose={() => setShowHistoryModal(false)}
+        leaveHistory={modalLeaveHistory}
+        department={fDept}
+      />
+      <LeaveCalendarModal
+        open={showCalendarModal}
+        onClose={() => setShowCalendarModal(false)}
+      />
 
       {/* Filters */}
       <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
@@ -286,7 +371,7 @@ export default function ApprovalsPage() {
         <Select label="ฝ่าย" value={fDivision} onChange={setFDivision} options={opts.division} />
         <Select label="หน่วย" value={fUnit} onChange={setFUnit} options={opts.unit} />
         <div>
-          <label className="block text-sm text-slate-700 dark:text-slate-300">ค้นหา</label>
+          <label className="block text-sm text-slate-900 dark:text-slate-100">ค้นหา</label>
           <input
             placeholder="ชื่อ / EMP No. / เหตุผล"
             value={q}
@@ -330,8 +415,7 @@ export default function ApprovalsPage() {
                       border-slate-300 bg-white shadow-sm
                       dark:border-white/10 dark:bg-white/5">
         <table className="w-full min-w-[900px] text-sm">
-          <thead className="bg-slate-100 text-slate-800 text-center
-                            dark:bg-slate-900/40 dark:text-slate-300">
+          <thead className="bg-slate-100 text-slate-900 text-center dark:bg-slate-900/40 dark:text-slate-100">
             <tr>
               <Th className="w-10">
                 <input
@@ -350,7 +434,7 @@ export default function ApprovalsPage() {
               <Th className="text-right pr-3">Approve</Th>
             </tr>
           </thead>
-          <tbody className="text-slate-800 dark:text-slate-100">
+          <tbody className="text-slate-900 dark:text-slate-100">
             {loading ? (
               <tr>
                 <td colSpan={8} className="px-4 py-6 text-center text-slate-500 dark:text-slate-400">
@@ -432,7 +516,7 @@ export default function ApprovalsPage() {
 
       {/* Details Panel */}
       <div className="mt-6 rounded-2xl border p-4 border-slate-300 bg-white shadow-sm dark:border-white/10 dark:bg-white/5">
-        <h3 className="text-base font-semibold mb-3">รายละเอียดคำขอ</h3>
+        <h3 className="text-base font-semibold mb-3 text-slate-900 dark:text-slate-100">รายละเอียดคำขอ</h3>
         {selected ? (
           <div className="grid gap-4">
             <div className="grid gap-3 sm:grid-cols-3">
@@ -458,7 +542,7 @@ export default function ApprovalsPage() {
               })()}
             </div>
             <div>
-              <div className="mb-1 text-sm text-slate-700 dark:text-slate-300">รายละเอียด (เหตุผลการลา)</div>
+              <div className="mb-1 text-sm text-slate-900 dark:text-slate-100">รายละเอียด (เหตุผลการลา)</div>
               <div className="rounded-xl border p-3 border-slate-300 bg-white text-slate-900 dark:border-white/10 dark:bg-slate-800/80 dark:text-slate-100">
                 {selected.reason || "-"}
               </div>
@@ -467,14 +551,14 @@ export default function ApprovalsPage() {
             {/* แสดงข้อมูลผู้อนุมัติ (ถ้ามี) */}
             {selected.status !== "PENDING" && (
               <div className="border-t pt-4 border-slate-200 dark:border-slate-700">
-                <h4 className="text-sm font-semibold mb-2 text-slate-700 dark:text-slate-300">ข้อมูลการอนุมัติ</h4>
+                <h4 className="text-sm font-semibold mb-2 text-slate-900 dark:text-slate-100">ข้อมูลการอนุมัติ</h4>
                 <div className="grid gap-2">
                   {selected.approverReason && (
                     <ReadField label="เหตุผลจากผู้อนุมัติ" value={selected.approverReason} />
                   )}
                   {selected.approverSignature && (
                     <div>
-                      <div className="mb-1 text-sm text-slate-700 dark:text-slate-300">ลายเซ็นผู้อนุมัติ</div>
+                      <div className="mb-1 text-sm text-slate-900 dark:text-slate-100">ลายเซ็นผู้อนุมัติ</div>
                       <div className="rounded-xl border p-2 border-slate-300 bg-white dark:border-white/10 dark:bg-slate-800/80">
                         <img src={selected.approverSignature} alt="ลายเซ็นผู้อนุมัติ" className="max-h-20" />
                       </div>
@@ -486,7 +570,7 @@ export default function ApprovalsPage() {
 
             {/* เหตุผลของผู้อนุมัติ */}
             <div>
-              <label className="block text-sm text-slate-700 dark:text-slate-300 mb-1">เหตุผลในการอนุมัติ/ไม่อนุมัติ</label>
+              <label className="block text-sm text-slate-900 dark:text-slate-100 mb-1">เหตุผลในการอนุมัติ/ไม่อนุมัติ</label>
               <textarea
                 value={approverReason}
                 onChange={(e) => setApproverReason(e.target.value)}
@@ -500,7 +584,7 @@ export default function ApprovalsPage() {
 
             {/* Signature Canvas */}
             <div>
-              <label className="block text-sm text-slate-700 dark:text-slate-300 mb-1">ลายเซ็น</label>
+              <label className="block text-sm text-slate-900 dark:text-slate-100 mb-1">ลายเซ็น</label>
               <div className="border rounded-xl p-3 border-slate-300 bg-white dark:border-white/10 dark:bg-slate-800/80">
                 <canvas
                   ref={signaturePadRef}
@@ -582,10 +666,10 @@ function Select({ label, value, onChange, options }: { label: string; value: str
   );
 }
 function Th({ children, className = "" }: { children: React.ReactNode; className?: string }) {
-  return <th className={`px-3 py-2 ${className}`}>{children}</th>;
+  return <th className={`px-3 py-2 text-slate-900 dark:text-slate-100 ${className}`}>{children}</th>;
 }
 function Td({ children, className = "", onClick }: { children: React.ReactNode; className?: string; onClick?: React.MouseEventHandler<HTMLTableCellElement>; }) {
-  return <td className={`px-3 py-2 align-top ${className}`} onClick={onClick}>{children}</td>;
+  return <td className={`px-3 py-2 align-top text-slate-900 dark:text-slate-100 ${className}`} onClick={onClick}>{children}</td>;
 }
 function ReadField({ label, value }: { label: string; value: React.ReactNode }) {
   return (

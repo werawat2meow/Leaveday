@@ -73,22 +73,59 @@ export async function POST(req: NextRequest) {
           department: body.department ?? null,
           division: body.division ?? null,
           unit: body.unit ?? null,
+          position: body.position ?? null,
           levelP: body.levelP ?? null,
           lineId: body.lineId ?? null,
           startDate: body.startDate ? new Date(body.startDate) : null,
           weeklyHoliday: body.weeklyHoliday ?? null,
-          vacationDays: Number(body.vacationDays ?? 0),
-          businessDays: Number(body.businessDays ?? 0),
-          sickDays: Number(body.sickDays ?? 0),
-          ordainDays: Number(body.ordainDays ?? 0),
-          maternityDays: Number(body.maternityDays ?? 0),
-          unpaidDays: Number(body.unpaidDays ?? 0),
-          birthdayDays: Number(body.birthdayDays ?? 0),
-          annualHolidays: Number(body.annualHolidays ?? 0),
           photoUrl: body.photoUrl ?? null,
           userId: user.id,
         },
       });
+
+      // ดึง LeaveRightsTemplate ตาม prefix (ถ้ามีค่า)
+      let template = null;
+      if (created.levelP) {
+        template = await tx.leaveRightsTemplate.findFirst({
+          where: { prefix: created.levelP },
+        });
+      }
+
+      // สร้าง LeaveRights ให้ employee (ใช้ปีปัจจุบัน)
+      if (template) {
+        await tx.leaveRights.create({
+          data: {
+            employeeId: created.id,
+            year: new Date().getFullYear(),
+            annualLeave: template.annualLeaveDays,
+            holidayLeave: template.holidayLeaveDays,
+            vacationLeave: template.vacationLeaveDays,
+            businessLeave: template.businessLeaveDays,
+            sickLeave: template.sickLeaveDays,
+            ordainLeave: template.ordainLeaveDays,
+            maternityLeave: template.maternityLeaveDays,
+            unpaidLeave: template.unpaidLeaveDays,
+            birthdayLeave: template.birthdayLeaveDays,
+          },
+        });
+      } else {
+        // ถ้าไม่มี template ให้สร้าง LeaveRights ด้วยค่า default เป็น 0
+        await tx.leaveRights.create({
+          data: {
+            employeeId: created.id,
+            year: new Date().getFullYear(),
+            annualLeave: 0,
+            holidayLeave: 0,
+            vacationLeave: 0,
+            businessLeave: 0,
+            sickLeave: 0,
+            ordainLeave: 0,
+            maternityLeave: 0,
+            unpaidLeave: 0,
+            birthdayLeave: 0,
+          },
+        });
+      }
 
       return created;
     });
@@ -140,20 +177,13 @@ export async function PUT(req: NextRequest) {
           department: body.department ?? undefined,
           division: body.division ?? undefined,
           unit: body.unit ?? undefined,
+          position: body.position ?? undefined,
           levelP: body.levelP ?? undefined,
           lineId: body.lineId ?? undefined,
           startDate: typeof body.startDate !== "undefined"
             ? (body.startDate ? new Date(body.startDate) : null)
             : undefined,
           weeklyHoliday: body.weeklyHoliday ?? undefined,
-          vacationDays: typeof body.vacationDays !== "undefined" ? Number(body.vacationDays) : undefined,
-          businessDays: typeof body.businessDays !== "undefined" ? Number(body.businessDays) : undefined,
-          sickDays: typeof body.sickDays !== "undefined" ? Number(body.sickDays) : undefined,
-          ordainDays: typeof body.ordainDays !== "undefined" ? Number(body.ordainDays) : undefined,
-          maternityDays: typeof body.maternityDays !== "undefined" ? Number(body.maternityDays) : undefined,
-          unpaidDays: typeof body.unpaidDays !== "undefined" ? Number(body.unpaidDays) : undefined,
-          birthdayDays: typeof body.birthdayDays !== "undefined" ? Number(body.birthdayDays) : undefined,
-          annualHolidays: typeof body.annualHolidays !== "undefined" ? Number(body.annualHolidays) : undefined,
           photoUrl: typeof body.photoUrl !== "undefined" ? (body.photoUrl || null) : undefined,
         },
       });
