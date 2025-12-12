@@ -1,10 +1,10 @@
 "use client";
 
-import { useMemo, useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
 import LeaveHistoryModal, {
   LeaveHistoryItem,
 } from "@/components/LeaveHistoryModal";
+import { useRouter } from "next/navigation";
+import { useEffect, useMemo, useState } from "react";
 
 type LeaveKind =
   | "ANNUAL"
@@ -222,11 +222,9 @@ export default function LeavePage() {
               return {
                 no: idx + 1,
                 type: l.kind,
-                range: `${new Date(
-                  l.startDate
-                ).toLocaleDateString("th-TH")} - ${new Date(
-                  l.endDate
-                ).toLocaleDateString("th-TH")}`,
+                range: `${new Date(l.startDate).toLocaleDateString(
+                  "th-TH"
+                )} - ${new Date(l.endDate).toLocaleDateString("th-TH")}`,
                 from: l.startDate,
                 to: l.endDate,
                 approverComment: l.approverComment ?? "",
@@ -292,7 +290,8 @@ export default function LeavePage() {
     if (leave.leaveType === "ANNUAL" && me && me.employee.startDate) {
       const startDate = new Date(me.employee.startDate);
       const now = new Date();
-      const diffYears = (now.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24 * 365.25);
+      const diffYears =
+        (now.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24 * 365.25);
       if (diffYears < 1) {
         return "อายุงานยังไม่ครบ 1 ปี ไม่สามารถลาประจำปีได้";
       }
@@ -943,250 +942,15 @@ export default function LeavePage() {
                 <p className="text-sm text-red-400">{leaveUsedError}</p>
               ) : myLeaveRights ? (
                 <>
-                <div className="grid gap-3 md:grid-cols-3">
-                  <EntBox
-                    title="Sick"
-                    data={{
-                      entitled: {
-                        vacation: 0,
-                        business: 0,
-                        sick: myLeaveRights.sickLeaveDays ?? 0,
-                        ordainDays: 0,
-                        maternity: 0,
-                        birthday: 0,
-                        unpaid: 0,
-                        annualHolidays: 0,
-                      },
-                      used: {
-                        vacation: 0,
-                        business: 0,
-                        sick: leaveUsed?.SICK ?? 0,
-                        ordainDays: 0,
-                        maternity: 0,
-                        birthday: 0,
-                        unpaid: 0,
-                        annualHolidays: 0,
-                      },
-                      remaining: {
-                        vacation: 0,
-                        business: 0,
-                        sick:
-                          (myLeaveRights.sickLeaveDays ?? 0) -
-                          (leaveUsed?.SICK ?? 0),
-                        ordainDays: 0,
-                        maternity: 0,
-                        birthday: 0,
-                        unpaid: 0,
-                        annualHolidays: 0,
-                      },
-                    }}
-                    k="sick"
-                  />
-
-                  <EntBox
-                    title="Business"
-                    data={{
-                      entitled: {
-                        vacation: 0,
-                        business: myLeaveRights.businessLeaveDays ?? 0,
-                        sick: 0,
-                        ordainDays: 0,
-                        maternity: 0,
-                        birthday: 0,
-                        unpaid: 0,
-                        annualHolidays: 0,
-                      },
-                      used: {
-                        vacation: 0,
-                        business: leaveUsed?.BUSINESS ?? 0,
-                        sick: 0,
-                        ordainDays: 0,
-                        maternity: 0,
-                        birthday: 0,
-                        unpaid: 0,
-                        annualHolidays: 0,
-                      },
-                      remaining: {
-                        vacation: 0,
-                        business:
-                          (myLeaveRights.businessLeaveDays ?? 0) -
-                          (leaveUsed?.BUSINESS ?? 0),
-                        sick: 0,
-                        ordainDays: 0,
-                        maternity: 0,
-                        birthday: 0,
-                        unpaid: 0,
-                        annualHolidays: 0,
-                      },
-                    }}
-                    k="business"
-                  />
-
-                  <EntBox
-                    title="Annual"
-                    data={{
-                      entitled: {
-                        vacation: myLeaveRights.vacationLeaveDays ?? 0,
-                        business: 0,
-                        sick: 0,
-                        ordainDays: 0,
-                        maternity: 0,
-                        birthday: 0,
-                        unpaid: 0,
-                        annualHolidays: 0,
-                      },
-                      used: {
-                        vacation: leaveUsed?.ANNUAL ?? 0,
-                        business: 0,
-                        sick: 0,
-                        ordainDays: 0,
-                        maternity: 0,
-                        birthday: 0,
-                        unpaid: 0,
-                        annualHolidays: 0,
-                      },
-                      remaining: {
-                        vacation:
-                          (myLeaveRights.vacationLeaveDays ?? 0) -
-                          (leaveUsed?.ANNUAL ?? 0),
-                        business: 0,
-                        sick: 0,
-                        ordainDays: 0,
-                        maternity: 0,
-                        birthday: 0,
-                        unpaid: 0,
-                        annualHolidays: 0,
-                      },
-                    }}
-                    k="vacation"
-                  />
-
-                  <EntBox
-                    title="Holidays"
-                    data={{
-                      entitled: {
-                        vacation: 0,
-                        business: 0,
-                        sick: 0,
-                        ordainDays: 0,
-                        maternity: 0,
-                        birthday: 0,
-                        unpaid: 0,
-                        annualHolidays: myLeaveRights.holidayLeaveDays ?? 0,
-                      },
-                      used: {
-                        vacation: 0,
-                        business: 0,
-                        sick: 0,
-                        ordainDays: 0,
-                        maternity: 0,
-                        birthday: 0,
-                        unpaid: 0,
-                        annualHolidays: leaveUsed?.ANNUAL_HOLIDAY ?? 0,
-                      },
-                      remaining: {
-                        vacation: 0,
-                        business: 0,
-                        sick: 0,
-                        ordainDays: 0,
-                        maternity: 0,
-                        birthday: 0,
-                        unpaid: 0,
-                        annualHolidays:
-                          (myLeaveRights.holidayLeaveDays ?? 0) -
-                          (leaveUsed?.ANNUAL_HOLIDAY ?? 0),
-                      },
-                    }}
-                    k="annualHolidays"
-                  />
-
-                  <EntBox
-                    title="Unpaid"
-                    data={{
-                      entitled: {
-                        vacation: 0,
-                        business: 0,
-                        sick: 0,
-                        ordainDays: 0,
-                        maternity: 0,
-                        birthday: 0,
-                        unpaid: myLeaveRights.unpaidLeaveDays ?? 0,
-                        annualHolidays: 0,
-                      },
-                      used: {
-                        vacation: 0,
-                        business: 0,
-                        sick: 0,
-                        ordainDays: 0,
-                        maternity: 0,
-                        birthday: 0,
-                        unpaid: leaveUsed?.UNPAID ?? 0,
-                        annualHolidays: 0,
-                      },
-                      remaining: {
-                        vacation: 0,
-                        business: 0,
-                        sick: 0,
-                        ordainDays: 0,
-                        maternity: 0,
-                        birthday: 0,
-                        unpaid:
-                          (myLeaveRights.unpaidLeaveDays ?? 0) -
-                          (leaveUsed?.UNPAID ?? 0),
-                        annualHolidays: 0,
-                      },
-                    }}
-                    k="unpaid"
-                  />
-
-                  <EntBox
-                    title="Birthday"
-                    data={{
-                      entitled: {
-                        vacation: 0,
-                        business: 0,
-                        sick: 0,
-                        ordainDays: 0,
-                        maternity: 0,
-                        birthday: myLeaveRights.birthdayLeaveDays ?? 0,
-                        unpaid: 0,
-                        annualHolidays: 0,
-                      },
-                      used: {
-                        vacation: 0,
-                        business: 0,
-                        sick: 0,
-                        ordainDays: 0,
-                        maternity: 0,
-                        birthday: leaveUsed?.BIRTHDAY ?? 0,
-                        unpaid: 0,
-                        annualHolidays: 0,
-                      },
-                      remaining: {
-                        vacation: 0,
-                        business: 0,
-                        sick: 0,
-                        ordainDays: 0,
-                        maternity: 0,
-                        birthday:
-                          (myLeaveRights.birthdayLeaveDays ?? 0) -
-                          (leaveUsed?.BIRTHDAY ?? 0),
-                        unpaid: 0,
-                        annualHolidays: 0,
-                      },
-                    }}
-                    k="birthday"
-                  />
-
-                  {isMale && (
+                  <div className="grid gap-3 md:grid-cols-3">
                     <EntBox
-                      title="Ordain"
+                      title="Sick"
                       data={{
                         entitled: {
                           vacation: 0,
                           business: 0,
-                          sick: 0,
-                          ordainDays: myLeaveRights.ordainLeaveDays ?? 0,
+                          sick: myLeaveRights.sickLeaveDays ?? 0,
+                          ordainDays: 0,
                           maternity: 0,
                           birthday: 0,
                           unpaid: 0,
@@ -1195,8 +959,8 @@ export default function LeavePage() {
                         used: {
                           vacation: 0,
                           business: 0,
-                          sick: 0,
-                          ordainDays: leaveUsed?.ORDAIN ?? 0,
+                          sick: leaveUsed?.SICK ?? 0,
+                          ordainDays: 0,
                           maternity: 0,
                           birthday: 0,
                           unpaid: 0,
@@ -1205,31 +969,185 @@ export default function LeavePage() {
                         remaining: {
                           vacation: 0,
                           business: 0,
-                          sick: 0,
-                          ordainDays:
-                            (myLeaveRights.ordainLeaveDays ?? 0) -
-                            (leaveUsed?.ORDAIN ?? 0),
+                          sick:
+                            (myLeaveRights.sickLeaveDays ?? 0) -
+                            (leaveUsed?.SICK ?? 0),
+                          ordainDays: 0,
                           maternity: 0,
                           birthday: 0,
                           unpaid: 0,
                           annualHolidays: 0,
                         },
                       }}
-                      k="ordainDays"
+                      k="sick"
                     />
-                  )}
 
-                  {isFemale && (
                     <EntBox
-                      title="Maternity"
+                      title="Business"
+                      data={{
+                        entitled: {
+                          vacation: 0,
+                          business: myLeaveRights.businessLeaveDays ?? 0,
+                          sick: 0,
+                          ordainDays: 0,
+                          maternity: 0,
+                          birthday: 0,
+                          unpaid: 0,
+                          annualHolidays: 0,
+                        },
+                        used: {
+                          vacation: 0,
+                          business: leaveUsed?.BUSINESS ?? 0,
+                          sick: 0,
+                          ordainDays: 0,
+                          maternity: 0,
+                          birthday: 0,
+                          unpaid: 0,
+                          annualHolidays: 0,
+                        },
+                        remaining: {
+                          vacation: 0,
+                          business:
+                            (myLeaveRights.businessLeaveDays ?? 0) -
+                            (leaveUsed?.BUSINESS ?? 0),
+                          sick: 0,
+                          ordainDays: 0,
+                          maternity: 0,
+                          birthday: 0,
+                          unpaid: 0,
+                          annualHolidays: 0,
+                        },
+                      }}
+                      k="business"
+                    />
+
+                    <EntBox
+                      title="Annual"
+                      data={{
+                        entitled: {
+                          vacation: myLeaveRights.vacationLeaveDays ?? 0,
+                          business: 0,
+                          sick: 0,
+                          ordainDays: 0,
+                          maternity: 0,
+                          birthday: 0,
+                          unpaid: 0,
+                          annualHolidays: 0,
+                        },
+                        used: {
+                          vacation: leaveUsed?.ANNUAL ?? 0,
+                          business: 0,
+                          sick: 0,
+                          ordainDays: 0,
+                          maternity: 0,
+                          birthday: 0,
+                          unpaid: 0,
+                          annualHolidays: 0,
+                        },
+                        remaining: {
+                          vacation:
+                            (myLeaveRights.vacationLeaveDays ?? 0) -
+                            (leaveUsed?.ANNUAL ?? 0),
+                          business: 0,
+                          sick: 0,
+                          ordainDays: 0,
+                          maternity: 0,
+                          birthday: 0,
+                          unpaid: 0,
+                          annualHolidays: 0,
+                        },
+                      }}
+                      k="vacation"
+                    />
+
+                    <EntBox
+                      title="Holidays"
                       data={{
                         entitled: {
                           vacation: 0,
                           business: 0,
                           sick: 0,
                           ordainDays: 0,
-                          maternity: myLeaveRights.maternityLeaveDays ?? 0,
+                          maternity: 0,
                           birthday: 0,
+                          unpaid: 0,
+                          annualHolidays: myLeaveRights.holidayLeaveDays ?? 0,
+                        },
+                        used: {
+                          vacation: 0,
+                          business: 0,
+                          sick: 0,
+                          ordainDays: 0,
+                          maternity: 0,
+                          birthday: 0,
+                          unpaid: 0,
+                          annualHolidays: leaveUsed?.ANNUAL_HOLIDAY ?? 0,
+                        },
+                        remaining: {
+                          vacation: 0,
+                          business: 0,
+                          sick: 0,
+                          ordainDays: 0,
+                          maternity: 0,
+                          birthday: 0,
+                          unpaid: 0,
+                          annualHolidays:
+                            (myLeaveRights.holidayLeaveDays ?? 0) -
+                            (leaveUsed?.ANNUAL_HOLIDAY ?? 0),
+                        },
+                      }}
+                      k="annualHolidays"
+                    />
+
+                    <EntBox
+                      title="Unpaid"
+                      data={{
+                        entitled: {
+                          vacation: 0,
+                          business: 0,
+                          sick: 0,
+                          ordainDays: 0,
+                          maternity: 0,
+                          birthday: 0,
+                          unpaid: myLeaveRights.unpaidLeaveDays ?? 0,
+                          annualHolidays: 0,
+                        },
+                        used: {
+                          vacation: 0,
+                          business: 0,
+                          sick: 0,
+                          ordainDays: 0,
+                          maternity: 0,
+                          birthday: 0,
+                          unpaid: leaveUsed?.UNPAID ?? 0,
+                          annualHolidays: 0,
+                        },
+                        remaining: {
+                          vacation: 0,
+                          business: 0,
+                          sick: 0,
+                          ordainDays: 0,
+                          maternity: 0,
+                          birthday: 0,
+                          unpaid:
+                            (myLeaveRights.unpaidLeaveDays ?? 0) -
+                            (leaveUsed?.UNPAID ?? 0),
+                          annualHolidays: 0,
+                        },
+                      }}
+                      k="unpaid"
+                    />
+
+                    <EntBox
+                      title="Birthday"
+                      data={{
+                        entitled: {
+                          vacation: 0,
+                          business: 0,
+                          sick: 0,
+                          ordainDays: 0,
+                          maternity: 0,
+                          birthday: myLeaveRights.birthdayLeaveDays ?? 0,
                           unpaid: 0,
                           annualHolidays: 0,
                         },
@@ -1238,8 +1156,8 @@ export default function LeavePage() {
                           business: 0,
                           sick: 0,
                           ordainDays: 0,
-                          maternity: leaveUsed?.MATERNITY ?? 0,
-                          birthday: 0,
+                          maternity: 0,
+                          birthday: leaveUsed?.BIRTHDAY ?? 0,
                           unpaid: 0,
                           annualHolidays: 0,
                         },
@@ -1248,34 +1166,149 @@ export default function LeavePage() {
                           business: 0,
                           sick: 0,
                           ordainDays: 0,
-                          maternity:
-                            (myLeaveRights.maternityLeaveDays ?? 0) -
-                            (leaveUsed?.MATERNITY ?? 0),
-                          birthday: 0,
+                          maternity: 0,
+                          birthday:
+                            (myLeaveRights.birthdayLeaveDays ?? 0) -
+                            (leaveUsed?.BIRTHDAY ?? 0),
                           unpaid: 0,
                           annualHolidays: 0,
                         },
                       }}
-                      k="maternity"
+                      k="birthday"
                     />
+
+                    {isMale && (
+                      <EntBox
+                        title="Ordain"
+                        data={{
+                          entitled: {
+                            vacation: 0,
+                            business: 0,
+                            sick: 0,
+                            ordainDays: myLeaveRights.ordainLeaveDays ?? 0,
+                            maternity: 0,
+                            birthday: 0,
+                            unpaid: 0,
+                            annualHolidays: 0,
+                          },
+                          used: {
+                            vacation: 0,
+                            business: 0,
+                            sick: 0,
+                            ordainDays: leaveUsed?.ORDAIN ?? 0,
+                            maternity: 0,
+                            birthday: 0,
+                            unpaid: 0,
+                            annualHolidays: 0,
+                          },
+                          remaining: {
+                            vacation: 0,
+                            business: 0,
+                            sick: 0,
+                            ordainDays:
+                              (myLeaveRights.ordainLeaveDays ?? 0) -
+                              (leaveUsed?.ORDAIN ?? 0),
+                            maternity: 0,
+                            birthday: 0,
+                            unpaid: 0,
+                            annualHolidays: 0,
+                          },
+                        }}
+                        k="ordainDays"
+                      />
+                    )}
+
+                    {isFemale && (
+                      <EntBox
+                        title="Maternity"
+                        data={{
+                          entitled: {
+                            vacation: 0,
+                            business: 0,
+                            sick: 0,
+                            ordainDays: 0,
+                            maternity: myLeaveRights.maternityLeaveDays ?? 0,
+                            birthday: 0,
+                            unpaid: 0,
+                            annualHolidays: 0,
+                          },
+                          used: {
+                            vacation: 0,
+                            business: 0,
+                            sick: 0,
+                            ordainDays: 0,
+                            maternity: leaveUsed?.MATERNITY ?? 0,
+                            birthday: 0,
+                            unpaid: 0,
+                            annualHolidays: 0,
+                          },
+                          remaining: {
+                            vacation: 0,
+                            business: 0,
+                            sick: 0,
+                            ordainDays: 0,
+                            maternity:
+                              (myLeaveRights.maternityLeaveDays ?? 0) -
+                              (leaveUsed?.MATERNITY ?? 0),
+                            birthday: 0,
+                            unpaid: 0,
+                            annualHolidays: 0,
+                          },
+                        }}
+                        k="maternity"
+                      />
+                    )}
+                  </div>
+                  {leaveUsed?.carryForwardAnnual > 0 && (
+                    <div className="mt-2 text-xs text-yellow-400">
+                      ยอดยกลาพักร้อนจากปีที่แล้ว: {leaveUsed.carryForwardAnnual}{" "}
+                      วัน
+                      {leaveUsed.carryForwardAnnualExpiry && (
+                        <>
+                          {" "}
+                          (หมดอายุ:{" "}
+                          {new Date(
+                            leaveUsed.carryForwardAnnualExpiry
+                          ).toLocaleDateString()}
+                          )
+                        </>
+                      )}
+                    </div>
                   )}
-                </div>
-                {leaveUsed?.carryForwardAnnual > 0 && (
-                  <div className="mt-2 text-xs text-yellow-400">
-                    ยอดยกมาจากปีที่แล้ว: {leaveUsed.carryForwardAnnual} วัน
-                    {leaveUsed.carryForwardAnnualExpiry && (
-                      <> (หมดอายุ: {new Date(leaveUsed.carryForwardAnnualExpiry).toLocaleDateString()})</>
-                    )}
+                  {leaveUsed?.carryForwardHoliday > 0 && (
+                    <div className="mt-2 text-xs text-yellow-400">
+                      ยอดยกวันหยุดพิเศษจากปีที่แล้ว:{" "}
+                      {leaveUsed.carryForwardHoliday} วัน
+                      {leaveUsed.carryForwardHolidayExpiry && (
+                        <>
+                          {" "}
+                          (หมดอายุ:{" "}
+                          {new Date(
+                            leaveUsed.carryForwardHolidayExpiry
+                          ).toLocaleDateString()}
+                          )
+                        </>
+                      )}
+                    </div>
+                  )}
+                  {/* แสดงยอดคงเหลือรวมตาม business logic ใหม่ */}
+                  <div className="mt-2 text-sm text-cyan-400">
+                    พักร้อนคงเหลือ: {leaveUsed?.totalRemainAnnual ?? "-"} วัน
+                    {leaveUsed?.remainCarryForwardAnnual > 0
+                      ? " (ยอดยก)"
+                      : leaveUsed?.remainVacationLeave > 0
+                      ? " (สิทธิ์ปีนี้)"
+                      : ""}
                   </div>
-                )}
-                {leaveUsed?.carryForwardHoliday > 0 && (
-                  <div className="mt-2 text-xs text-yellow-400">
-                    ยอดวันหยุดยกมาจากปีที่แล้ว: {leaveUsed.carryForwardHoliday} วัน
-                    {leaveUsed.carryForwardHolidayExpiry && (
-                      <> (หมดอายุ: {new Date(leaveUsed.carryForwardHolidayExpiry).toLocaleDateString()})</>
-                    )}
+                  <div className="mt-2 text-sm text-cyan-400">
+                    วันหยุดพิเศษคงเหลือ: {leaveUsed?.totalRemainHoliday ?? "-"}{" "}
+                    วัน
+                    {leaveUsed?.remainCarryForwardHoliday > 0
+                      ? " (ยอดยก)"
+                      : leaveUsed?.remainHolidayLeave > 0
+                      ? " (สิทธิ์ปีนี้)"
+                      : ""}
                   </div>
-                )}
                 </>
               ) : (
                 <p className="text-sm text-[var(--muted)]">
@@ -1352,15 +1385,24 @@ export default function LeavePage() {
 
 function getLeaveRightsField(leaveType: string) {
   switch (leaveType) {
-    case "ANNUAL": return "vacationLeaveDays";
-    case "SICK": return "sickLeaveDays";
-    case "BUSINESS": return "businessLeaveDays";
-    case "UNPAID": return "unpaidLeaveDays";
-    case "BIRTHDAY": return "birthdayLeaveDays";
-    case "ORDAIN": return "ordainLeaveDays";
-    case "MATERNITY": return "maternityLeaveDays";
-    case "ANNUAL_HOLIDAY": return "holidayLeaveDays";
-    default: return "";
+    case "ANNUAL":
+      return "vacationLeaveDays";
+    case "SICK":
+      return "sickLeaveDays";
+    case "BUSINESS":
+      return "businessLeaveDays";
+    case "UNPAID":
+      return "unpaidLeaveDays";
+    case "BIRTHDAY":
+      return "birthdayLeaveDays";
+    case "ORDAIN":
+      return "ordainLeaveDays";
+    case "MATERNITY":
+      return "maternityLeaveDays";
+    case "ANNUAL_HOLIDAY":
+      return "holidayLeaveDays";
+    default:
+      return "";
   }
 }
 

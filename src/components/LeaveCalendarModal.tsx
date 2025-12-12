@@ -384,8 +384,8 @@ export default function LeaveCalendarModal({ open, onClose }: Props) {
         </div>
 
         {/* footer hint */}
-        <div className="mt-3 text-xs text-slate-100">
-          คลิกตัวเลขในวันที่เพื่อดูรายชื่อผู้ลา
+        <div className="mt-3 text-xs text-red-600 font-semibold">
+          *** คลิกตัวเลขในวันที่เพื่อดูรายชื่อผู้ลา
         </div>
       </div>
     </div>

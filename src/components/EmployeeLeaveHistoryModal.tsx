@@ -105,7 +105,7 @@ export default function EmployeeLeaveHistoryModal({
     >
       {/* stop close when click card */}
       <div
-        className="w-[96vw] max-w-5xl neon-card rounded-2xl p-4 sm:p-6 max-h-[90vh] overflow-y-auto"
+        className="w-[96vw] lg:w-[85vw] lg:max-w-[1200px] neon-card rounded-2xl p-4 sm:p-6 max-h-[90vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between mb-4">
@@ -167,7 +167,7 @@ export default function EmployeeLeaveHistoryModal({
                   <th className="text-center px-3 py-2 text-xs sm:text-sm font-semibold whitespace-nowrap">
                     สถานะ
                   </th>
-                  <th className="text-center px-3 py-2 text-xs sm:text-sm font-semibold whitespace-nowrap hidden sm:table-cell">
+                  <th className="text-center px-3 py-2 text-xs sm:text-sm font-semibold whitespace-nowrap">
                     ผู้อนุมัติ
                   </th>
                 </tr>
@@ -232,7 +232,7 @@ export default function EmployeeLeaveHistoryModal({
                             {statusLabel}
                           </span>
                         </td>
-                        <td className="text-center px-3 py-2 text-xs sm:text-sm hidden sm:table-cell">
+                        <td className="text-center px-3 py-2 text-xs sm:text-sm">
                           {approver}
                         </td>
                       </tr>

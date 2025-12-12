@@ -17,7 +17,11 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <div className="min-h-dvh">
       {/* Header เฉพาะมือถือ: ปุ่มแฮมเบอร์เกอร์ */}
-      <div className="md:hidden sticky top-0 z-40 border-b border-[var(--border)] bg-[color:rgba(0,0,0,.35)] backdrop-blur">
+      <div
+        className={`md:hidden sticky top-0 z-40 border-b border-[var(--border)] bg-[color:rgba(0,0,0,.35)] backdrop-blur ${
+          open ? "pointer-events-none" : ""
+        }`}
+      >
         <div className="px-4 py-3 flex items-center justify-between">
           <button
             onClick={() => setOpen(true)}
@@ -45,15 +49,13 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       </div>
 
       {/* Drawer มือถือ */}
-      <div className={`md:hidden fixed inset-0 z-50 ${open ? "" : "pointer-events-none"}`} aria-hidden={!open}>
+      <div className={`md:hidden fixed inset-0 z-[99999] ${open ? "" : "pointer-events-none"}`} aria-hidden={!open}>
         <div
           className={`absolute inset-0 bg-black/60 backdrop-blur-sm transition-opacity ${open ? "opacity-100" : "opacity-0"}`}
           onClick={() => setOpen(false)}
         />
         <aside
-          className={`absolute left-0 top-0 bottom-0 w-[260px] neon-card transition-transform ${
-            open ? "translate-x-0" : "-translate-x-full"
-          }`}
+          className={`absolute left-0 top-0 bottom-0 w-[260px] neon-card transition-transform ${open ? "translate-x-0" : "-translate-x-full"} z-[100000]`}
           role="dialog"
           aria-modal="true"
         >

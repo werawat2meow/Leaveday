@@ -49,7 +49,7 @@ export default function LeaveHistoryModal({
     >
       {/* stop close when click card */}
       <div
-        className="w-[96vw] max-w-5xl neon-card rounded-2xl p-4 sm:p-6 max-h-[90vh] overflow-y-auto"
+        className="w-[98vw] max-w-7xl neon-card rounded-2xl p-4 sm:p-6 max-h-[90vh] overflow-y-auto min-w-0"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between mb-4">
@@ -76,11 +76,11 @@ export default function LeaveHistoryModal({
               <table className="w-full min-w-[800px] history-table text-xs sm:text-sm">
                 <colgroup>
                   <col style={{ width: 56 }} />
-                  <col />
-                  <col style={{ width: 160 }} />
+                  <col style={{ width: 140 }} />
+                  <col style={{ width: 180 }} />
                   <col style={{ width: 88 }} />
                   <col />
-                  <col style={{ width: 120 }} />
+                  <col style={{ width: 160 }} />
                   <col style={{ width: 120 }} />
                 </colgroup>
 

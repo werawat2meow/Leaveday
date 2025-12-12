@@ -58,7 +58,25 @@ export async function GET() {
       orderBy: { createdAt: 'desc' }
     });
     
-    return NextResponse.json({ ok: true, data: leaves });
+    const mapped = leaves.map((leave) => {
+      const emp = leave.user?.employee;
+      const empNo = emp?.empNo ?? '';
+      return {
+        ...leave,
+        user: {
+          ...leave.user,
+          employee: emp
+          ? {
+            ...emp,
+            // ถ้ามี photoUrl ใน DB ให้ใช้ค่านั้น ถ้าไม่มีก็ใช้ fallback path
+            photoUrl: emp.photoUrl ?? `/uploads/avatars/${empNo}.jpg`,
+          }
+          : null,
+        },
+      };
+    });
+
+    return NextResponse.json({ ok: true, data: mapped });
     
   } catch (error) {
     console.error("GET /api/approvals error:", error);

@@ -91,8 +91,12 @@ export async function POST(req: NextResponse) {
     //คำนวณ carry forward (ถ้ามี)
     const carryForwardAnnual = lastYearRights?.annualLeave ?? 0;
     const carryForwardHoliday = lastYearRights?.holidayLeave ?? 0;
-    const carryForwardAnnualExpiry = new Date(`${year}-12-31`); // ตัวอย่างวันหมดอายุ
-    const carryForwardHolidayExpiry = new Date(`${year}-12-31`);
+    const employee = await prisma.employee.findUnique({ where: { id: employeeId } });
+    const startDate = employee?.startDate ? new Date(employee.startDate) : new Date(`${year}-01-01`);
+    const carryForwardAnnualExpiry = new Date(startDate);
+    carryForwardAnnualExpiry.setFullYear(year);
+
+    const carryForwardHolidayExpiry = new Date(`${year + 1}-09-30`);
 
     // สร้าง LeaveRights สำหรับปีใหม่
     const newRights = await prisma.leaveRights.create({

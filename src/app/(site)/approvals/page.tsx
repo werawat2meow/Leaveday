@@ -1,10 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState, useRef } from "react";
-import SignatureCanvas from "react-signature-canvas";
-import SignaturePad from "signature_pad";
 import EmployeeLeaveHistoryModal from "@/components/EmployeeLeaveHistoryModal";
 import LeaveCalendarModal from "@/components/LeaveCalendarModal";
+import { useEffect, useMemo, useRef, useState } from "react";
+import SignaturePadWrapper, { SigHandle } from "@/components/SignaturePadWrapper";
 
 /* ---------------- Types ---------------- */
 type LeaveStatus = "PENDING" | "APPROVED" | "REJECTED";
@@ -30,6 +29,8 @@ type LeaveRequest = {
       division?: string;
       unit?: string;
       levelP?: string;
+      photoUrl?: string | null;
+      avatar?: string | null;
     };
   };
 };
@@ -40,16 +41,9 @@ async function fetchLeaveRequests(): Promise<LeaveRequest[]> {
     const response = await fetch('/api/approvals');
     if (!response.ok) throw new Error('Failed to fetch leaves');
     const data = await response.json();
-    
-    // 🔍 Debug log
+
     console.log('🔄 [Approvals] API Response:', data);
-    console.log('🔄 [Approvals] Is Array?', Array.isArray(data));
-    console.log('🔄 [Approvals] data.data?', data.data);
-    
     const result = Array.isArray(data) ? data : data.data || [];
-    console.log('🔄 [Approvals] Final result:', result);
-    console.log('🔄 [Approvals] Result length:', result.length);
-    
     return result;
   } catch (error) {
     console.error('Error fetching leave requests:', error);
@@ -78,15 +72,32 @@ export default function ApprovalsPage() {
   const [data, setData] = useState<LeaveRequest[]>([]);
 
   // selection
-  const [selectedId, setSelectedId] = useState<number | null>(null); // สำหรับ panel ด้านล่าง
-  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set()); // สำหรับ bulk
+  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
 
   // approver inputs
   const [approverReason, setApproverReason] = useState("");
   const [approverSignature, setApproverSignature] = useState<string | null>(null);
-  const sigCanvasRef = useRef<SignatureCanvas | null>(null);
-  const signaturePadRef = useRef<HTMLCanvasElement | null>(null);
-  const signaturePadInstance = useRef<SignaturePad | null>(null);
+  const sigRef = useRef<SigHandle | null>(null); // use SignaturePadWrapper via ref
+
+  // ------ signature
+  const [rememberSignature, setRememberSignature] = useState(false);
+  const [savedSignatureExists, setSavedSignatureExists] = useState(false);
+
+  const signatureStorageKey = useMemo(() => {
+    if (typeof window === "undefined") return "approverSignature_me";
+    return `approverSignature_${(window as any).__USER_ID__ || localStorage.getItem("currentUserId") || "me"}`;
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const s = localStorage.getItem(signatureStorageKey);
+      setSavedSignatureExists(!!s);
+    } catch {
+      setSavedSignatureExists(false);
+    }
+  }, [signatureStorageKey]);
 
   // filters
   const [q, setQ] = useState("");
@@ -101,17 +112,15 @@ export default function ApprovalsPage() {
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [showCalendarModal, setShowCalendarModal] = useState(false);
 
-  // leaveHistory สำหรับ modal (ทุกคนในแผนก)
+  // leaveHistory for modal
   const [modalLeaveHistory, setModalLeaveHistory] = useState<LeaveRequest[]>([]);
 
-  // ดึง leave ทุกคนในแผนกเมื่อเปิด modal
+  // fetch modal data when opened
   useEffect(() => {
     if (!showHistoryModal) return;
-    // TODO: เปลี่ยน 'IT' เป็นชื่อแผนกจริงที่ต้องการ filter
     fetch('/api/leaves/all?department=IT')
       .then(res => res.json())
       .then(json => {
-        // map ให้ตรงกับ LeaveRequest ที่ modal ใช้ (เพิ่ม approverName, handoverTo)
         const mapped = (json.data || []).map((l: any) => ({
           id: l.id,
           userId: l.userId,
@@ -143,15 +152,13 @@ export default function ApprovalsPage() {
       });
   }, [showHistoryModal]);
 
-  // Debug log: จำนวน leave request ที่ modal ได้รับ
   useEffect(() => {
     if (showHistoryModal) {
-      console.log('[Modal] leaveHistory count:', data.length);
-      console.log('[Modal] leaveHistory:', data);
+      console.log('[Modal] leaveHistory count:', modalLeaveHistory.length);
     }
-  }, [showHistoryModal, data]);
+  }, [showHistoryModal, modalLeaveHistory]);
 
-  // load data from API
+  // load data
   useEffect(() => {
     const loadData = async () => {
       setLoading(true);
@@ -162,76 +169,31 @@ export default function ApprovalsPage() {
     loadData();
   }, []);
 
-  // initialize signature pad when modal opens
-  useEffect(() => {
-    if (selectedId && signaturePadRef.current) {
-      // Destroy existing instance
-      if (signaturePadInstance.current) {
-        signaturePadInstance.current.off();
-      }
-      
-      // Wait for modal to fully render
-      setTimeout(() => {
-        const canvas = signaturePadRef.current;
-        if (canvas) {
-          // Get actual canvas size from CSS
-          const rect = canvas.getBoundingClientRect();
-          const dpr = window.devicePixelRatio || 1;
-          
-          // Set canvas size to match display size
-          canvas.width = rect.width * dpr;
-          canvas.height = rect.height * dpr;
-          
-          // Scale canvas back down using CSS
-          canvas.style.width = rect.width + 'px';
-          canvas.style.height = rect.height + 'px';
-          
-          // Scale the drawing context so everything draws at the correct size
-          const ctx = canvas.getContext('2d');
-          if (ctx) {
-            ctx.scale(dpr, dpr);
-          }
-          
-          // Initialize signature pad
-          signaturePadInstance.current = new SignaturePad(canvas, {
-            backgroundColor: 'rgb(255, 255, 255)',
-            penColor: 'rgb(0, 0, 0)',
-            minWidth: 1,
-            maxWidth: 3,
-          });
-          
-          console.log('SignaturePad initialized with proper scaling');
-        }
-      }, 100);
-    }
-  }, [selectedId]);
-
   // options
   const opts = useMemo(() => {
     const getUnique = (field: string) => {
       return Array.from(new Set(
-        data.map(x => x.user.employee?.[field as keyof typeof x.user.employee])
-          .filter(Boolean)
+        data.map(x => x.user.employee?.[field as keyof typeof x.user.employee]).filter(Boolean)
       )).sort() as string[];
     };
-    return { 
-      org: getUnique("org"), 
-      dept: getUnique("department"), 
-      division: getUnique("division"), 
-      unit: getUnique("unit") 
+    return {
+      org: getUnique("org"),
+      dept: getUnique("department"),
+      division: getUnique("division"),
+      unit: getUnique("unit")
     };
   }, [data]);
 
-  // filter result
+  // filtered list
   const filtered = useMemo(() => {
     return data.filter((r) => {
       const employee = r.user.employee;
       const name = `${employee?.firstName || ''} ${employee?.lastName || ''}`.trim();
       const empNo = employee?.empNo || '';
       const hitQ = !q || [empNo, name, r.kind, r.reason || ''].join(" ").toLowerCase().includes(q.toLowerCase());
-      const hit = (!fOrg || employee?.org === fOrg) && 
-                  (!fDept || employee?.department === fDept) && 
-                  (!fDivision || employee?.division === fDivision) && 
+      const hit = (!fOrg || employee?.org === fOrg) &&
+                  (!fDept || employee?.department === fDept) &&
+                  (!fDivision || employee?.division === fDivision) &&
                   (!fUnit || employee?.unit === fUnit);
       return hitQ && hit;
     });
@@ -259,16 +221,14 @@ export default function ApprovalsPage() {
   // actions
   async function updateStatus(ids: number[], status: LeaveStatus) {
     try {
-      // อัปเดตแต่ละรายการใน API
       await Promise.all(
         ids.map(id => updateLeaveStatus(id, status, approverReason || undefined, approverSignature || undefined))
       );
-      
-      // อัปเดต local state
+
       setData((prev) => prev.map((r) => {
         if (ids.includes(r.id)) {
-          return { 
-            ...r, 
+          return {
+            ...r,
             status,
             approverReason: approverReason || undefined,
             approverSignature: approverSignature || undefined
@@ -276,23 +236,20 @@ export default function ApprovalsPage() {
         }
         return r;
       }));
-      
+
       setToast({
         type: status === "APPROVED" ? "success" : "error",
         msg: `${status === "APPROVED" ? "อนุมัติ" : "ไม่อนุมัติ"}แล้ว ${ids.length} รายการ`,
       });
-      
-      setSelectedIds(new Set()); // clear selection
-      setApproverReason(""); // clear approver reason
-      setApproverSignature(null); // clear signature
-      sigCanvasRef.current?.clear();
+
+      setSelectedIds(new Set());
+      setApproverReason("");
+      setApproverSignature(null);
+      sigRef.current?.clear();
       setTimeout(() => setToast(null), 2000);
     } catch (error) {
       console.error('Error updating status:', error);
-      setToast({
-        type: "error",
-        msg: "เกิดข้อผิดพลาดในการอัปเดตสถานะ",
-      });
+      setToast({ type: "error", msg: "เกิดข้อผิดพลาดในการอัปเดตสถานะ" });
       setTimeout(() => setToast(null), 2000);
     }
   }
@@ -300,33 +257,37 @@ export default function ApprovalsPage() {
   const rejectIds = (ids: number[]) => updateStatus(ids, "REJECTED");
 
   const clearSignature = () => {
-    if (signaturePadInstance.current) {
-      signaturePadInstance.current.clear();
-    }
-    // fallback for react-signature-canvas
-    sigCanvasRef.current?.clear();
+    sigRef.current?.clear();
     setApproverSignature(null);
   };
 
   const saveSignature = () => {
-    if (signaturePadInstance.current && !signaturePadInstance.current.isEmpty()) {
-      try {
-        const dataURL = signaturePadInstance.current.toDataURL("image/png");
-        setApproverSignature(dataURL);
-      } catch (error) {
-        console.error('Error saving signature:', error);
-      }
-    } else {
-      // fallback for react-signature-canvas
-      if (sigCanvasRef.current) {
+    try {
+      const dataURL = sigRef.current?.toDataURL() ?? null;
+      if (!dataURL) return;
+
+      setApproverSignature(dataURL);
+
+      if (rememberSignature && typeof window !== "undefined") {
         try {
-          const canvas = sigCanvasRef.current.getCanvas();
-          const dataURL = canvas.toDataURL("image/png");
-          setApproverSignature(dataURL);
-        } catch (error) {
-          console.error('Fallback signature save failed:', error);
+          localStorage.setItem(signatureStorageKey, dataURL);
+          setSavedSignatureExists(true);
+        } catch (err) {
+          console.error("Failed to save signature to localStorage", err);
         }
       }
+    } catch (error) {
+      console.error("Error saving signature:", error);
+    }
+  };
+
+  const deleteSavedSignature = () => {
+    if (typeof window === "undefined") return;
+    try {
+      localStorage.removeItem(signatureStorageKey);
+      setSavedSignatureExists(false);
+    } catch (err) {
+      console.error("Failed to delete saved signature:", err);
     }
   };
 
@@ -334,22 +295,22 @@ export default function ApprovalsPage() {
     <section className="neon-card rounded-2xl p-6 text-slate-900 dark:text-slate-100">
       <div className="flex items-center justify-between">
         <h2 className="neon-title text-lg font-semibold text-slate-900 dark:text-slate-100">รายการคำขอลา</h2>
-          <div className="flex gap-2">
-            <button
-              className="rounded-lg px-4 py-2 bg-yellow-200 text-yellow-900 hover:bg-yellow-300 border border-yellow-300 dark:bg-yellow-900/30 dark:text-yellow-200 dark:hover:bg-yellow-800"
-              onClick={() => { setShowHistoryModal(true) }}
-            >
-              ดูประวัติการลา
-            </button>
-            <button
-              className="rounded-lg px-4 py-2 bg-orange-300 text-orange-900 hover:bg-orange-400 border border-orange-400 dark:bg-orange-900/30 dark:text-orange-200 dark:hover:bg-orange-800"
-              onClick={() => setShowCalendarModal(true)}
-            >
-              ดูปฏิทินภาพรวม
-            </button>
-          </div>
+        <div className="flex gap-2">
+          <button
+            className="rounded-lg px-4 py-2 bg-yellow-200 text-yellow-900 hover:bg-yellow-300 border border-yellow-300 dark:bg-yellow-900/30 dark:text-yellow-200 dark:hover:bg-yellow-800"
+            onClick={() => { setShowHistoryModal(true) }}
+          >
+            ดูประวัติการลา
+          </button>
+          <button
+            className="rounded-lg px-4 py-2 bg-orange-300 text-orange-900 hover:bg-orange-400 border border-orange-400 dark:bg-orange-900/30 dark:text-orange-200 dark:hover:bg-orange-800"
+            onClick={() => setShowCalendarModal(true)}
+          >
+            ดูปฏิทินภาพรวม
+          </button>
+        </div>
       </div>
-      {/* Debug: log leaveHistory prop before rendering modal */}
+
       {showHistoryModal && (
         (() => { console.log('[Modal] leaveHistory (modalLeaveHistory):', modalLeaveHistory); return null; })()
       )}
@@ -410,11 +371,11 @@ export default function ApprovalsPage() {
         </div>
       </div>
 
-      {/* Table (responsive + higher contrast in light) */}
+      {/* Table (responsive) */}
       <div className="mt-3 rounded-xl border overflow-x-auto
                       border-slate-300 bg-white shadow-sm
                       dark:border-white/10 dark:bg-white/5">
-        <table className="w-full min-w-[900px] text-sm">
+        <table className="w-full text-sm">
           <thead className="bg-slate-100 text-slate-900 text-center dark:bg-slate-900/40 dark:text-slate-100">
             <tr>
               <Th className="w-10">
@@ -427,11 +388,11 @@ export default function ApprovalsPage() {
               </Th>
               <Th>ลำดับ</Th>
               <Th>ชื่อ - สกุล</Th>
-              <Th className="hidden md:table-cell">ประเภทลา</Th>
-              <Th className="hidden lg:table-cell">รายละเอียดการลา</Th>
-              <Th className="hidden sm:table-cell">Level P</Th>
-              <Th className="hidden sm:table-cell">สถานะ</Th>
-              <Th className="text-right pr-3">Approve</Th>
+              <Th className="text-center">ประเภทลา</Th>
+              <Th className="text-center">รายละเอียดการลา</Th>
+              <Th className="text-center">Level P</Th>
+              <Th className="text-center">สถานะ</Th>
+              <Th className="text-center pr-3">Approve</Th>
             </tr>
           </thead>
           <tbody className="text-slate-900 dark:text-slate-100">
@@ -454,7 +415,7 @@ export default function ApprovalsPage() {
                 const name = `${employee?.firstName || ''} ${employee?.lastName || ''}`.trim();
                 const empNo = employee?.empNo || '-';
                 const org = `${employee?.org || '-'}/${employee?.department || '-'}/${employee?.division || '-'}/${employee?.unit || '-'}`;
-                
+
                 return (
                   <tr
                     key={r.id}
@@ -479,13 +440,13 @@ export default function ApprovalsPage() {
                         {empNo} • {org}
                       </div>
                     </Td>
-                    <Td className="hidden md:table-cell text-center">{r.kind}</Td>
-                    <Td className="hidden lg:table-cell text-center">
+                    <Td className=" text-center">{r.kind}</Td>
+                    <Td className=" text-center">
                       {fmtDate(r.startDate)} – {fmtDate(r.endDate)}
                       <div className="text-xs text-slate-500 dark:text-slate-400 line-clamp-1">{r.reason}</div>
                     </Td>
-                    <Td className="hidden sm:table-cell text-center">{employee?.levelP || '-'}</Td>
-                    <Td className="hidden sm:table-cell text-center">
+                    <Td className=" text-center">{employee?.levelP || '-'}</Td>
+                    <Td className=" text-center">
                       <StatusBadge status={r.status} />
                     </Td>
                     <Td className="text-right pr-3">
@@ -519,28 +480,41 @@ export default function ApprovalsPage() {
         <h3 className="text-base font-semibold mb-3 text-slate-900 dark:text-slate-100">รายละเอียดคำขอ</h3>
         {selected ? (
           <div className="grid gap-4">
-            <div className="grid gap-3 sm:grid-cols-3">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               {(() => {
                 const employee = selected.user.employee;
                 const name = `${employee?.firstName || ''} ${employee?.lastName || ''}`.trim();
                 const empNo = employee?.empNo || '-';
                 const org = `${employee?.org || '-'} / ${employee?.department || '-'} / ${employee?.division || '-'} / ${employee?.unit || '-'}`;
-                
+                const photoUrl =
+                  employee?.photoUrl ||
+                  (employee?.avatar) ||
+                  `/uploads/avatars/${empNo}.jpg`;
                 return (
                   <>
-                    <ReadField label="ชื่อ - สกุล (ผู้ขอ)" value={`${name} • ${empNo}`} />
-                    <ReadField
-                      label="องค์กร / แผนก / ฝ่าย / หน่วย"
-                      value={org}
-                    />
-                    <ReadField label="Level P" value={employee?.levelP || '-'} />
-                    <ReadField label="ประเภทลา" value={selected.kind} />
-                    <ReadField label="วันที่ลา" value={`${fmtDate(selected.startDate)} - ${fmtDate(selected.endDate)}`} />
-                    <ReadField label="สถานะ" value={<StatusBadge status={selected.status} />} />
+                    <div className="sm:col-start-3 sm:row-start-1 flex items-start justify-end">
+                      <div className="w-28 h-28 sm:w-36 sm:h-36 rounded-lg overflow-hidden bg-slate-100 dark:bg-slate-800">
+                        <img
+                          src={photoUrl || '/images/avatar-placeholder.png'}
+                          alt={`${employee?.firstName || ''} ${employee?.lastName || ''}`}
+                          onError={(e) => { (e.currentTarget as HTMLImageElement).src = '/images/avatar-placeholder.png'; }}
+                          className="w-full h-full object-cover"
+                        />
+                      </div>
+                    </div>
+                    <div className="sm:col-span-3 sm:row-start-2 grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      <ReadField label="ชื่อ - สกุล (ผู้ขอ)" value={`${name} • ${empNo}`} />
+                      <ReadField label="สังกัด / แผนก / ฝ่าย / หน่วย" value={org} />
+                      <ReadField label="Level P" value={employee?.levelP || '-'} />
+                      <ReadField label="ประเภทลา" value={selected.kind} />
+                      <ReadField label="วันที่ลา" value={`${fmtDate(selected.startDate)} - ${fmtDate(selected.endDate)}`} />
+                      <ReadField label="สถานะ" value={<StatusBadge status={selected.status} />} />
+                    </div>
                   </>
                 );
               })()}
             </div>
+
             <div>
               <div className="mb-1 text-sm text-slate-900 dark:text-slate-100">รายละเอียด (เหตุผลการลา)</div>
               <div className="rounded-xl border p-3 border-slate-300 bg-white text-slate-900 dark:border-white/10 dark:bg-slate-800/80 dark:text-slate-100">
@@ -548,7 +522,7 @@ export default function ApprovalsPage() {
               </div>
             </div>
 
-            {/* แสดงข้อมูลผู้อนุมัติ (ถ้ามี) */}
+            {/* approval info if resolved */}
             {selected.status !== "PENDING" && (
               <div className="border-t pt-4 border-slate-200 dark:border-slate-700">
                 <h4 className="text-sm font-semibold mb-2 text-slate-900 dark:text-slate-100">ข้อมูลการอนุมัติ</h4>
@@ -568,7 +542,7 @@ export default function ApprovalsPage() {
               </div>
             )}
 
-            {/* เหตุผลของผู้อนุมัติ */}
+            {/* approver reason */}
             <div>
               <label className="block text-sm text-slate-900 dark:text-slate-100 mb-1">เหตุผลในการอนุมัติ/ไม่อนุมัติ</label>
               <textarea
@@ -582,33 +556,78 @@ export default function ApprovalsPage() {
               />
             </div>
 
-            {/* Signature Canvas */}
+            {/* Signature (uses wrapper component) */}
             <div>
               <label className="block text-sm text-slate-900 dark:text-slate-100 mb-1">ลายเซ็น</label>
               <div className="border rounded-xl p-3 border-slate-300 bg-white dark:border-white/10 dark:bg-slate-800/80">
-                <canvas
-                  ref={signaturePadRef}
-                  className="w-full h-40 border rounded bg-white border-slate-300"
-                />
-                <div className="mt-2 flex gap-2">
+                {/* ให้ pad มีความสูงที่เหมาะสม และสามารถย่อ/ขยายได้ */}
+                <div className="w-full">
+                  <SignaturePadWrapper ref={sigRef} className="w-full h-40 sm:h-28 rounded bg-white" />
+                </div>
+
+                {/* ปรับให้ปุ่ม wrap ได้บนหน้าจอเล็ก และแต่ละปุ่มไม่ยืดจนล้น */}
+                <div className="mt-2 flex flex-wrap gap-2 items-center">
+                  {savedSignatureExists && (
+                    <button
+                      type="button"
+                      className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 flex-shrink-0 sm:flex-shrink-0 w-full sm:w-auto"
+                      onClick={() => {
+                        const s = typeof window !== "undefined" ? localStorage.getItem(signatureStorageKey) : null;
+                        if (s) setApproverSignature(s);
+                      }}
+                    >
+                      ใช้ลายเซ็นที่บันทึกไว้
+                    </button>
+                  )}
+
+                  {savedSignatureExists && (
+                    <button
+                      type="button"
+                      className="px-4 py-2 bg-gray-300 text-gray-800 rounded-lg hover:bg-gray-400 flex-shrink-0 w-full sm:w-auto"
+                      onClick={deleteSavedSignature}
+                    >
+                      ลบลายเซ็นที่บันทึกไว้
+                    </button>
+                  )}
+
                   <button
                     onClick={clearSignature}
-                    className="px-4 py-2 bg-rose-600 text-white rounded-lg hover:bg-rose-700 dark:bg-rose-500 dark:hover:bg-rose-600"
+                    className="px-4 py-2 bg-rose-600 text-white rounded-lg hover:bg-rose-700 dark:bg-rose-500 dark:hover:bg-rose-600 flex-shrink-0 w-full sm:w-auto"
                   >
                     ล้างลายเซ็น
                   </button>
+
                   <button
                     onClick={saveSignature}
-                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex-shrink-0 w-full sm:w-auto"
                   >
                     บันทึกลายเซ็น
                   </button>
+
+                  <label className="ml-0 sm:ml-2 inline-flex items-center gap-2 text-sm w-full sm:w-auto">
+                    <input
+                      type="checkbox"
+                      checked={rememberSignature}
+                      onChange={(e) => setRememberSignature(e.target.checked)}
+                    />
+                    <span>บันทึกลายเซ็นสำหรับครั้งต่อไป</span>
+                  </label>
+
                   {approverSignature && (
-                    <span className="text-sm text-emerald-600 dark:text-emerald-400 flex items-center">
+                    <span className="text-sm text-emerald-600 dark:text-emerald-400 flex items-center w-full sm:w-auto">
                       ✓ บันทึกลายเซ็นแล้ว
                     </span>
                   )}
                 </div>
+
+                {approverSignature && (
+                  <div className="mt-3">
+                    <div className="mb-1 text-sm text-slate-900 dark:text-slate-100">ตัวอย่างลายเซ็น</div>
+                    <div className="rounded border p-2 border-slate-200 dark:border-white/10 bg-white dark:bg-slate-800">
+                      <img src={approverSignature} alt="preview signature" className="max-h-24 w-full object-contain bg-white" />
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -682,7 +701,7 @@ function ReadField({ label, value }: { label: string; value: React.ReactNode }) 
 function StatusBadge({ status }: { status: LeaveStatus }) {
   const map: Record<string, string> = {
     "PENDING":  "bg-yellow-200 text-yellow-800 border-yellow-300 dark:bg-yellow-900/30 dark:text-yellow-300 dark:border-yellow-700/40",
-    "APPROVED": "bg-green-200 text-green-800 border-green-300 dark:bg-green-900/30 dark:text-green-300 dark:border-green-700/40", 
+    "APPROVED": "bg-green-200 text-green-800 border-green-300 dark:bg-green-900/30 dark:text-green-300 dark:border-green-700/40",
     "REJECTED": "bg-red-200 text-red-800 border-red-300 dark:bg-red-900/30 dark:text-red-300 dark:border-red-700/40",
   };
   const label = status === "PENDING" ? "รออนุมัติ" : status === "APPROVED" ? "อนุมัติแล้ว" : "ไม่อนุมัติ";
@@ -693,13 +712,12 @@ function StatusBadge({ status }: { status: LeaveStatus }) {
 /* ---------------- Utils ---------------- */
 function fmtDate(s: string) {
   if (!s) return "-";
-  // แปลง ISO string เป็น Date แล้วฟอร์แมต
   const date = new Date(s);
   if (isNaN(date.getTime())) return "-";
-  
+
   const day = date.getDate().toString().padStart(2, '0');
   const month = (date.getMonth() + 1).toString().padStart(2, '0');
   const year = date.getFullYear();
-  
+
   return `${day}/${month}/${year}`;
 }
