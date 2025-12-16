@@ -3,6 +3,7 @@
 import EmployeeListModal, {
   type Employee,
 } from "@/components/EmployeeListModal";
+import { useSession } from "next-auth/react";
 import { useEffect, useRef, useState } from "react";
 
 type EmployeeForm = {
@@ -100,6 +101,8 @@ function toDbPath(u?: string | null) {
 }
 
 export default function ProfileSettingsPage() {
+  const { data: session } = useSession();
+  const canImport = session?.user?.email === "master@company.com";
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -463,32 +466,34 @@ export default function ProfileSettingsPage() {
           เพิ่มข้อมูล
         </h2>
         <div className="flex items-center gap-2">
-          <div className="flex items-center gap-2">
-            <input
-              type="file"
-              ref={importInputRef}
-              accept=".xlsx,.xls"
-              className="hidden"
-              onChange={handleImportFileChange}
-            />
-            <button
-              type="button"
-              className="neon-title rounded-xl px-4 py-2 border border-green-500 hover:bg-green-50 dark:border-green-400 dark:hover:bg-green-500/10 cursor-pointer text-sm"
-              onClick={() => importInputRef.current?.click()}
-            >
-              เลือกไฟล์ Excel
-            </button>
-            {importFile && (
+          {canImport && (
+            <div className="flex items-center gap-2">
+              <input
+                type="file"
+                ref={importInputRef}
+                accept=".xlsx,.xls"
+                className="hidden"
+                onChange={handleImportFileChange}
+              />
               <button
                 type="button"
-                className="neon-title rounded-xl px-4 py-2 bg-green-600 text-white hover:bg-green-700 cursor-pointer text-sm"
-                onClick={handleImportExcel}
-                disabled={importing}
+                className="neon-title rounded-xl px-4 py-2 border border-green-500 hover:bg-green-50 dark:border-green-400 dark:hover:bg-green-500/10 cursor-pointer text-sm"
+                onClick={() => importInputRef.current?.click()}
               >
-                {importing ? "กำลัง Import..." : `Import ${importFile.name}`}
+                เลือกไฟล์ Excel
               </button>
-            )}
-          </div>
+              {importFile && (
+                <button
+                  type="button"
+                  className="neon-title rounded-xl px-4 py-2 bg-green-600 text-white hover:bg-green-700 cursor-pointer text-sm"
+                  onClick={handleImportExcel}
+                  disabled={importing}
+                >
+                  {importing ? "กำลัง Import..." : `Import ${importFile.name}`}
+                </button>
+              )}
+            </div>
+          )}
           <button
             type="button"
             className="neon-title rounded-xl px-4 py-2 border border-slate-300 hover:bg-slate-50 dark:border-white/10 dark:hover:bg-white/5 cursor-pointer"
