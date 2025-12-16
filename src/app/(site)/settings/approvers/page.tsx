@@ -135,88 +135,67 @@ export default function ApproversPage() {
       .catch(() => setUnits([]));
   }, [form.divisionId]);
 
-  const handlePick = (a: Approver) => {
+    const handlePick = (a: Approver) => {
     console.log("[PICK]", a);
-
-    setForm((prev) => ({
-      ...prev,
-      // id
-      id: a.id ?? prev.id ?? null,
-      // คำนำหน้า
-      prefix: a._raw?.prefix ?? prev.prefix ?? "",
-
-      // ชื่อ–นามสกุล
-      firstNameTh: a._raw?.firstNameTh ?? prev.firstNameTh ?? "",
-      lastNameTh: a._raw?.lastNameTh ?? prev.lastNameTh ?? "",
-      firstNameEn: a._raw?.firstNameEn ?? prev.firstNameEn ?? "",
-      lastNameEn: a._raw?.lastNameEn ?? prev.lastNameEn ?? "",
-
-      // รหัสพนักงาน / บัตรประชาชน
-      empNo: a.empNo ?? a._raw?.empNo ?? "",
-      citizenId: a._raw?.citizenId ?? prev.citizenId ?? "",
-
-      // โครงสร้างหน่วยงาน (ทั้งชื่อและ id ถ้ามี)
-      org: a.org ?? a._raw?.org ?? "",
-      department: a.dept ?? a._raw?.department ?? "",
-      division: a.division ?? a._raw?.division ?? "",
-      unit: a.unit ?? a._raw?.unit ?? "",
-      orgId: (a as any).orgId ?? a._raw?.orgId ?? null,
-      departmentId:
-        (a as any).departmentId ??
-        a._raw?.departmentId ??
-        a._raw?.deptId ??
-        null,
-      divisionId: (a as any).divisionId ?? a._raw?.divisionId ?? null,
-      unitId: (a as any).unitId ?? a._raw?.unitId ?? null,
-      level: a.level ?? a._raw?.level ?? "",
-      levelP: (function (v: any) {
-        const raw =
-          v ?? (a as any).levelP ?? a._raw?.levelP ?? a._raw?.level ?? a.level;
-        if (raw == null) return "";
-        const s = String(raw);
-        if (s.startsWith("P")) return s;
-        if (/^\d+$/.test(s)) return `P${s}`;
-        return s;
-      })(a.level),
-
-      // อื่น ๆ
-      lineId: a._raw?.lineId ?? "",
-      email: a.email ?? a._raw?.email ?? "",
-    }));
-
+    // Use the single mapper so both top-level and _raw shapes are handled the same way
+    setForm(mapApproverToForm(a as any));
     setOpen(false);
   };
 
-  function mapApproverToForm(a: any): Form {
-    return {
-      id: a.id ?? null,
-      prefix: a.prefix ?? "",
-      firstNameTh: a.firstNameTh ?? "",
-      lastNameTh: a.lastNameTh ?? "",
-      firstNameEn: a.firstNameEn ?? "",
-      lastNameEn: a.lastNameEn ?? "",
-      empNo: a.empNo ?? "",
-      citizenId: a.citizenId ?? "",
-      org: a.org ?? "",
-      department: a.department ?? "",
-      division: a.division ?? "",
-      unit: a.unit ?? "",
-      orgId: a.orgId ?? null,
-      departmentId: a.departmentId ?? null,
-      divisionId: a.divisionId ?? null,
-      unitId: a.unitId ?? null,
-      level: a.level ?? "",
-      levelP:
-        a.levelP ??
-        (a.level
-          ? String(a.level).startsWith("P")
-            ? String(a.level)
-            : `P${String(a.level)}`
-          : ""),
-      lineId: a.lineId ?? "",
-      email: a.email ?? "",
-    };
-  }
+  
+
+function mapApproverToForm(a: any): Form {
+  const raw = a?._raw ?? a ?? {};
+
+  const getId = (...keys: string[]) => {
+    for (const k of keys) {
+      const v = a?.[k] ?? raw?.[k];
+      if (v !== undefined && v !== null && v !== "") return Number(v);
+    }
+    return null;
+  };
+
+  const getName = (...keys: string[]) => {
+    for (const k of keys) {
+      const v = a?.[k] ?? raw?.[k];
+      if (v !== undefined && v !== null) return String(v);
+    }
+    return "";
+  };
+
+  const anyLevel = a?.level ?? raw?.level ?? a?.levelP ?? raw?.levelP;
+  const levelP =
+    a?.levelP ??
+    raw?.levelP ??
+    (anyLevel
+      ? String(anyLevel).startsWith("P")
+        ? String(anyLevel)
+        : `P${String(anyLevel)}`
+      : "");
+
+  return {
+    id: getId("id", "Id", "ID"),
+    prefix: getName("prefix", "title", "prefixName"),
+    firstNameTh: getName("firstNameTh", "first_name_th", "firstName"),
+    lastNameTh: getName("lastNameTh", "last_name_th", "lastName"),
+    firstNameEn: getName("firstNameEn", "first_name_en"),
+    lastNameEn: getName("lastNameEn", "last_name_en"),
+    empNo: getName("empNo", "employeeNo", "emp_no"),
+    citizenId: getName("citizenId", "citizen_id"),
+    org: getName("org", "organization", "orgName", "org_name"),
+    department: getName("department", "dept", "departmentName", "dept_name"),
+    division: getName("division", "divisionName", "division_name"),
+    unit: getName("unit", "unitName", "unit_name"),
+    orgId: getId("orgId", "org_id", "organizationId"),
+    departmentId: getId("departmentId", "department_id", "deptId", "dept_id"),
+    divisionId: getId("divisionId", "division_id"),
+    unitId: getId("unitId", "unit_id"),
+    level: getName("level"),
+    levelP,
+    lineId: getName("lineId", "line_id"),
+    email: getName("email"),
+  };
+}
 
   async function handleSave() {
     if (!form.firstNameTh || !form.lastNameTh || !form.empNo) {
@@ -411,8 +390,8 @@ export default function ApproversPage() {
           Level P
           <select
             className="neon-input w-full rounded-xl p-3"
-            value={form.level ?? ""}
-            onChange={(e) => setF({ level: e.target.value })}
+            value={form.levelP ?? ""}
+            onChange={(e) => setF({ levelP: e.target.value })}
           >
             <option value="">เลือก Level P</option>
             {Array.from({ length: 11 }, (_, i) => `P${i + 2}`).map((p) => (
@@ -476,7 +455,7 @@ function SelectField({
       >
         <option value="">{placeholder ?? "- เลือก -"}</option>
         {options.map((o) => (
-          <option key={o.id} value={String(o.id)}>
+          <option key={o.id} value={o.id}>
             {o.name}
           </option>
         ))}
