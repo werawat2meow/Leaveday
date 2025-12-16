@@ -360,3 +360,33 @@ html.theme-light body{
 
 /* ขนาดเต็มความกว้าง เมื่ออยากให้ดูเป็น action block */
 .btn-block { width: 100%; }
+
+/* Action color variants */
+.btn-create {
+  background: #16a34a; /* green-600 */
+  color: #ffffff;
+  border: 1px solid rgba(0,0,0,0.08);
+  box-shadow: 0 6px 18px rgba(16,185,129,0.12);
+}
+.btn-create:hover { filter: brightness(1.03); }
+
+.btn-select {
+  background: #facc15; /* yellow-400 */
+  color: #1f2937; /* slate-800 */
+  border: 1px solid rgba(0,0,0,0.06);
+}
+.btn-select:hover { filter: brightness(0.98); }
+
+.btn-edit {
+  background: #fb923c; /* orange-400 */
+  color: #ffffff;
+  border: 1px solid rgba(0,0,0,0.06);
+}
+.btn-edit:hover { filter: brightness(1.03); }
+
+.btn-delete {
+  background: #ef4444; /* red-500 */
+  color: #ffffff;
+  border: 1px solid rgba(0,0,0,0.06);
+}
+.btn-delete:hover { filter: brightness(0.98); }

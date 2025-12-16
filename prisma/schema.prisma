@@ -115,19 +115,31 @@ model Employee {
   firstName      String
   lastName       String
   idCard         String?   @unique
-  org            String? // สังกัด
-  department     String? // แผนก
-  division       String? // ฝ่าย
-  unit           String? // หน่วย
-  position       String? // ตำแหน่ง
+
+  // ฟิลด์ใหม่
+  orgId        Int?
+  departmentId Int?
+  divisionId   Int?
+  unitId       Int?
+
+  // ฟิลด์เดิม (ยังคงไว้)
+  org            String?
+  department     String?
+  division       String?
+  unit           String?
+  position       String?
   levelP         String?
   lineId         String?
   startDate      DateTime?
-  weeklyHoliday  String? // วันหยุดประจำสัปดาห์ (เช่น "อาทิตย์")
+  weeklyHoliday  String?
 
   photoUrl String?
 
-  // ผูกกับ user (ถ้าต้องการ)
+  organization Organization? @relation("OrgToEmployee", fields: [orgId], references: [id])
+  departmentRel Department?  @relation("DeptToEmployee", fields: [departmentId], references: [id])
+  divisionRel   Division?    @relation("DivToEmployee", fields: [divisionId], references: [id])
+  unitRel       Unit?        @relation("UnitToEmployee", fields: [unitId], references: [id])
+
   userId Int?  @unique
   user   User? @relation(fields: [userId], references: [id])
   leaveRights LeaveRights[]
@@ -162,15 +174,26 @@ model Approver {
   lastNameEn  String?
   empNo       String   @unique
   citizenId   String?  @unique
+
+  // ฟิลด์ใหม่
+  orgId        Int?
+  departmentId Int?
+  divisionId   Int?
+  unitId       Int?
+  // ฟิลด์เดิม (ยังคงไว้)
   org         String?
   department  String?
   division    String?
   unit        String?
   level       String?
   lineId      String?
-  email       String?  @unique   // ✅ เพิ่มเพื่อผูกกับตาราง User
+  email       String?  @unique
 
-  // ✅ เพิ่ม relation สำหรับ Leave records ที่อนุมัติ
+  organization Organization? @relation("OrgToApprover", fields: [orgId], references: [id])
+  departmentRel Department?  @relation("DeptToApprover", fields: [departmentId], references: [id])
+  divisionRel   Division?    @relation("DivToApprover", fields: [divisionId], references: [id])
+  unitRel       Unit?        @relation("UnitToApprover", fields: [unitId], references: [id])
+
   approvedLeaves Leave[]
 
   createdAt   DateTime @default(now())
@@ -210,4 +233,42 @@ model LeaveRightsTemplate {
     unpaidLeaveDays     Int
     birthdayLeaveDays   Int
 }
+
+model Organization {
+  id         Int          @id @default(autoincrement())
+  name       String
+  departments Department[]
+  employees   Employee[]   @relation("OrgToEmployee")
+  approvers   Approver[]   @relation("OrgToApprover")
+}
+
+model Department {
+  id             Int          @id @default(autoincrement())
+  name           String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  organizationId Int
+  divisions      Division[]
+  employees      Employee[]   @relation("DeptToEmployee")
+  approvers      Approver[]   @relation("DeptToApprover")
+}
+
+model Division {
+  id           Int        @id @default(autoincrement())
+  name         String
+  department   Department @relation(fields: [departmentId], references: [id])
+  departmentId Int
+  units        Unit[]
+  employees    Employee[] @relation("DivToEmployee")
+  approvers    Approver[] @relation("DivToApprover")
+}
+
+model Unit {
+  id         Int       @id @default(autoincrement())
+  name       String
+  division   Division  @relation(fields: [divisionId], references: [id])
+  divisionId Int
+  employees  Employee[] @relation("UnitToEmployee")
+  approvers  Approver[] @relation("UnitToApprover")
+}
+
 

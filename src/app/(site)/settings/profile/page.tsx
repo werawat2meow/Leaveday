@@ -1,7 +1,9 @@
 "use client";
 
+import EmployeeListModal, {
+  type Employee,
+} from "@/components/EmployeeListModal";
 import { useEffect, useRef, useState } from "react";
-import EmployeeListModal, { type Employee } from "@/components/EmployeeListModal";
 
 type EmployeeForm = {
   id?: string | null;
@@ -29,6 +31,10 @@ type EmployeeForm = {
   birthdayDays?: number;
   annualHolidays?: number;
   photoUrl?: string;
+  orgId?: number;
+  departmentId?: number;
+  divisionId?: number;
+  unitId?: number;
 };
 
 function mapEmployeeToForm(e: any): EmployeeForm {
@@ -57,6 +63,10 @@ function mapEmployeeToForm(e: any): EmployeeForm {
     unpaidDays: Number(e.unpaidDays ?? 0),
     birthdayDays: Number(e.birthdayDays ?? 0),
     annualHolidays: Number(e.annualHolidays ?? 0),
+    orgId: e.orgId ?? undefined,
+    departmentId: e.departmentId ?? undefined,
+    divisionId: e.divisionId ?? undefined,
+    unitId: e.unitId ?? undefined,
     photoUrl: e.photoUrl ?? "",
   };
 }
@@ -83,7 +93,8 @@ function toDbPath(u?: string | null) {
   if (!u) return null;
   const x = String(u).trim();
   if (x.startsWith("blob:") || x.startsWith("data:")) return null;
-  if (API_BASE && x.startsWith(API_BASE + "/uploads")) return x.slice(API_BASE.length);
+  if (API_BASE && x.startsWith(API_BASE + "/uploads"))
+    return x.slice(API_BASE.length);
   if (x.startsWith("/uploads/")) return x;
   return `/uploads/${x.replace(/^\/+/, "")}`;
 }
@@ -92,91 +103,231 @@ export default function ProfileSettingsPage() {
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const pickFile = () => inputRef.current?.click();
+  const [organizations, setOrganizations] = useState<any[]>([]);
+  const [departments, setDepartments] = useState<any[]>([]);
+  const [divisions, setDivisions] = useState<any[]>([]);
+  const [units, setUnits] = useState<any[]>([]);
 
-  const [openEmpModal, setOpenEmpModal] = useState(false);
-
-  const [form, setForm] = useState<EmployeeForm>({
+  const [form, setForm] = useState<any>({
     id: null,
     empNo: "",
     firstName: "",
     lastName: "",
     position: "",
+    orgId: undefined,
+    departmentId: undefined,
+    divisionId: undefined,
+    unitId: undefined,
   });
   const [saving, setSaving] = useState(false);
   const [importing, setImporting] = useState(false);
   const [importFile, setImportFile] = useState<File | null>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
-  const setF = (patch: Partial<EmployeeForm>) => setForm(prev => ({ ...prev, ...patch }));
+  const setF = (patch: Partial<EmployeeForm>) =>
+    setForm((prev: EmployeeForm) => ({ ...prev, ...patch }));
+
+  // --- useEffect สำหรับ dropdown ---
+  // โหลดรายชื่อสังกัด (Organization) ตอน mount
+  useEffect(() => {
+    fetch("/api/organizations")
+      .then((res) => res.json())
+      .then(setOrganizations)
+      .catch(() => setOrganizations([]));
+  }, []);
+
+  // โหลดแผนกเมื่อ orgId เปลี่ยน (ไม่เคลียร์ค่าเลือกใน effect)
+  useEffect(() => {
+    if (!form.orgId) {
+      setDepartments([]);
+      setDivisions([]);
+      setUnits([]);
+      return;
+    }
+    fetch(`/api/organizations/${form.orgId}/departments`)
+      .then((res) => res.json())
+      .then((data) => {
+        setDepartments(data);
+      })
+      .catch(() => {
+        setDepartments([]);
+      });
+  }, [form.orgId]);
+
+  // โหลดฝ่ายเมื่อ departmentId เปลี่ยน (ไม่เคลียร์ค่าเลือกใน effect)
+  useEffect(() => {
+    if (!form.departmentId) {
+      setDivisions([]);
+      setUnits([]);
+      return;
+    }
+    fetch(`/api/departments/${form.departmentId}/divisions`)
+      .then((res) => res.json())
+      .then((data) => {
+        setDivisions(data);
+      })
+      .catch(() => {
+        setDivisions([]);
+      });
+  }, [form.departmentId]);
+
+  // โหลดหน่วยเมื่อ divisionId เปลี่ยน (ไม่เคลียร์ค่าเลือกใน effect)
+  useEffect(() => {
+    if (!form.divisionId) {
+      setUnits([]);
+      return;
+    }
+    fetch(`/api/divisions/${form.divisionId}/units`)
+      .then((res) => res.json())
+      .then((data) => {
+        setUnits(data);
+      })
+      .catch(() => {
+        setUnits([]);
+      });
+  }, [form.divisionId]);
+
+  // ลบ effect ที่ซ้ำ (เคยเคลียร์ค่าเลือกซ้ำ)
+
+  const pickFile = () => inputRef.current?.click();
+  const [openEmpModal, setOpenEmpModal] = useState(false);
 
   // ✅ เมื่อเลือกจากโมดัล → กรอกฟอร์มครบทุกฟิลด์
-function handlePickEmployee(e: Employee) {
-  if (e._raw) {
-    setForm(mapEmployeeToForm(e._raw));
-  } else {
-    const parts = (e.name || "").trim().split(/\s+/);
-    const first = parts[0] ?? "";
-    const last  = parts.slice(1).join(" ");
-    setForm(prev => ({
-      ...prev,
-      id: e.id ?? prev.id ?? null,
-      empNo: e.empNo || prev.empNo,
-      firstName: first || prev.firstName,
-      lastName:  last  || prev.lastName,
-      department: e.dept ?? prev.department,
-    }));
-  }
-
-  // ✅ สำคัญ: รีเซ็ตพรีวิวไฟล์ท้องถิ่น เพื่อให้ใช้รูปจาก form.photoUrl
-  setPhotoFile(null);
-  setPhotoUrl(null);
-}
-
-  async function handleSave() {
-    if (!form.empNo)   { alert("กรุณากรอกรหัสพนักงาน"); return; }
-    if (!form.firstName || !form.lastName) { alert("กรุณากรอกชื่อ-นามสกุล"); return; }
-    if (!form.email)   { alert("กรุณากรอกอีเมล"); return; }
-    if (!form.idCard)  { alert("กรุณากรอกเลขบัตรประชาชน"); return; }
-
-  setSaving(true);
-  try {
-    let photoUrlForDb = form.photoUrl ?? null;
-
-    if (photoFile) {
-      const fd = new FormData();
-      fd.append("file", photoFile);
-      const up = await fetch("/api/uploads", { method: "POST", body: fd });
-      const upData = await up.json();
-      if (!up.ok) { alert(upData?.error ?? "อัปโหลดรูปไม่สำเร็จ"); return; }
-      photoUrlForDb = upData.url as string;
+  function handlePickEmployee(e: Employee) {
+    if (e._raw) {
+      const newForm = mapEmployeeToForm(e._raw);
+      setForm(newForm);
+      // โหลด dropdown แบบ chain เพื่อให้แสดงค่าที่เลือกไว้ถูกต้อง
+      if (newForm.orgId) {
+        fetch(`/api/organizations/${newForm.orgId}/departments`)
+          .then((res) => res.json())
+          .then((deps) => {
+            setDepartments(deps);
+            if (newForm.departmentId) {
+              setF({ departmentId: newForm.departmentId });
+              fetch(`/api/departments/${newForm.departmentId}/divisions`)
+                .then((res) => res.json())
+                .then((divs) => {
+                  setDivisions(divs);
+                  if (newForm.divisionId) {
+                    setF({ divisionId: newForm.divisionId });
+                    fetch(`/api/divisions/${newForm.divisionId}/units`)
+                      .then((res) => res.json())
+                      .then((units) => {
+                        setUnits(units);
+                        if (newForm.unitId) setF({ unitId: newForm.unitId });
+                      });
+                  }
+                });
+            }
+          });
+      }
     } else {
-      // ✅ แปลง URL เต็มเป็น path ก่อนบันทึก
-      photoUrlForDb = toDbPath(photoUrlForDb);
+      const parts = (e.name || "").trim().split(/\s+/);
+      const first = parts[0] ?? "";
+      const last = parts.slice(1).join(" ");
+      setForm((prev: EmployeeForm) => ({
+        ...prev,
+        id: e.id ?? prev.id ?? null,
+        empNo: e.empNo || prev.empNo,
+        firstName: first || prev.firstName,
+        lastName: last || prev.lastName,
+        department: e.dept ?? prev.department,
+      }));
     }
 
-    const payload = { ...form, photoUrl: photoUrlForDb };
-    const isEdit = !!form.id;
-    const url = isEdit ? `/api/employees?id=${form.id}` : "/api/employees";
-    const method = isEdit ? "PUT" : "POST";
-
-    const res = await fetch(url, {
-      method,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) { alert(data?.error ?? "บันทึกไม่สำเร็จ"); return; }
-
-    setForm(mapEmployeeToForm(data));
-    alert("บันทึกสำเร็จ");
-  } catch (e) {
-    console.error("[EMP_SAVE] unexpected error:", e);
-    alert("เกิดข้อผิดพลาด");
-  } finally {
-    setSaving(false);
+    // ✅ สำคัญ: รีเซ็ตพรีวิวไฟล์ท้องถิ่น เพื่อให้ใช้รูปจาก form.photoUrl
+    setPhotoFile(null);
+    setPhotoUrl(null);
   }
-}
+
+  async function handleSave() {
+    if (!form.empNo) {
+      alert("กรุณากรอกรหัสพนักงาน");
+      return;
+    }
+    if (!form.firstName || !form.lastName) {
+      alert("กรุณากรอกชื่อ-นามสกุล");
+      return;
+    }
+    if (!form.email) {
+      alert("กรุณากรอกอีเมล");
+      return;
+    }
+    if (!form.idCard) {
+      alert("กรุณากรอกเลขบัตรประชาชน");
+      return;
+    }
+
+    setSaving(true);
+    try {
+      let photoUrlForDb = form.photoUrl ?? null;
+
+      if (photoFile) {
+        const fd = new FormData();
+        fd.append("file", photoFile);
+        const up = await fetch("/api/uploads", { method: "POST", body: fd });
+        const upData = await up.json();
+        if (!up.ok) {
+          alert(upData?.error ?? "อัปโหลดรูปไม่สำเร็จ");
+          return;
+        }
+        photoUrlForDb = upData.url as string;
+      } else {
+        // ✅ แปลง URL เต็มเป็น path ก่อนบันทึก
+        photoUrlForDb = toDbPath(photoUrlForDb);
+      }
+
+      const payload = {
+        ...form,
+        org: organizations.find((x) => x.id === form.orgId)?.name || "",
+        department:
+          departments.find((x) => x.id === form.departmentId)?.name || "",
+        division: divisions.find((x) => x.id === form.divisionId)?.name || "",
+        unit: units.find((x) => x.id === form.unitId)?.name || "",
+        photoUrl: photoUrlForDb,
+      };
+      const isEdit = !!form.id;
+      const url = isEdit ? `/api/employees?id=${form.id}` : "/api/employees";
+      const method = isEdit ? "PUT" : "POST";
+
+      const res = await fetch(url, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(data?.error ?? "บันทึกไม่สำเร็จ");
+        return;
+      }
+
+      const newForm = mapEmployeeToForm(data);
+      setForm(newForm);
+      // โหลด dropdown ตาม id ที่ได้มาใหม่
+      if (newForm.orgId) {
+        fetch(`/api/organizations/${newForm.orgId}/departments`)
+          .then((res) => res.json())
+          .then(setDepartments);
+      }
+      if (newForm.departmentId) {
+        fetch(`/api/departments/${newForm.departmentId}/divisions`)
+          .then((res) => res.json())
+          .then(setDivisions);
+      }
+      if (newForm.divisionId) {
+        fetch(`/api/divisions/${newForm.divisionId}/units`)
+          .then((res) => res.json())
+          .then(setUnits);
+      }
+      alert("บันทึกสำเร็จ");
+    } catch (e) {
+      console.error("[EMP_SAVE] unexpected error:", e);
+      alert("เกิดข้อผิดพลาด");
+    } finally {
+      setSaving(false);
+    }
+  }
 
   async function handleImportExcel() {
     if (!importFile) {
@@ -263,7 +414,10 @@ function handlePickEmployee(e: Employee) {
 
   // preview รูป
   useEffect(() => {
-    if (!photoFile) { setPhotoUrl(null); return; }
+    if (!photoFile) {
+      setPhotoUrl(null);
+      return;
+    }
     const url = URL.createObjectURL(photoFile);
     setPhotoUrl(url);
     return () => URL.revokeObjectURL(url);
@@ -272,17 +426,26 @@ function handlePickEmployee(e: Employee) {
   function onFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0];
     if (!f) return;
-    if (!f.type.startsWith("image/")) { alert("กรุณาเลือกไฟล์รูปภาพ"); return; }
+    if (!f.type.startsWith("image/")) {
+      alert("กรุณาเลือกไฟล์รูปภาพ");
+      return;
+    }
     setPhotoFile(f);
   }
   function onDrop(e: React.DragEvent<HTMLDivElement>) {
     e.preventDefault();
     const f = e.dataTransfer.files?.[0];
     if (!f) return;
-    if (!f.type.startsWith("image/")) { alert("กรุณาเลือกไฟล์รูปภาพ"); return; }
+    if (!f.type.startsWith("image/")) {
+      alert("กรุณาเลือกไฟล์รูปภาพ");
+      return;
+    }
     setPhotoFile(f);
   }
-  const onDrag = (e: React.DragEvent) => { e.preventDefault(); e.stopPropagation(); };
+  const onDrag = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
   function removePhoto() {
     setPhotoFile(null);
     setPhotoUrl(null);
@@ -290,12 +453,19 @@ function handlePickEmployee(e: Employee) {
   }
 
   return (
-    <section role="tabpanel" aria-label="เพิ่มข้อมูล" className="neon-card rounded-2xl p-4 sm:p-6">
+    <section
+      role="tabpanel"
+      aria-label="เพิ่มข้อมูล"
+      className="neon-card rounded-2xl p-4 sm:p-6"
+    >
       <div className="mb-4 flex items-center justify-between gap-3">
-        <h2 className="neon-title text-base sm:text-lg font-semibold mb-4">เพิ่มข้อมูล</h2>
+        <h2 className="neon-title text-base sm:text-lg font-semibold mb-4">
+          เพิ่มข้อมูล
+        </h2>
         <div className="flex items-center gap-2">
           <div className="flex items-center gap-2">
-            <input type="file"
+            <input
+              type="file"
               ref={importInputRef}
               accept=".xlsx,.xls"
               className="hidden"
@@ -320,11 +490,11 @@ function handlePickEmployee(e: Employee) {
             )}
           </div>
           <button
-              type="button"
-              className="neon-title rounded-xl px-4 py-2 border border-slate-300 hover:bg-slate-50 dark:border-white/10 dark:hover:bg-white/5 cursor-pointer"
-              onClick={() => setOpenEmpModal(true)}
-            >
-              รายชื่อพนักงาน
+            type="button"
+            className="neon-title rounded-xl px-4 py-2 border border-slate-300 hover:bg-slate-50 dark:border-white/10 dark:hover:bg-white/5 cursor-pointer"
+            onClick={() => setOpenEmpModal(true)}
+          >
+            รายชื่อพนักงาน
           </button>
         </div>
       </div>
@@ -340,13 +510,23 @@ function handlePickEmployee(e: Employee) {
             className="rounded-2xl border border-white/10 bg-[var(--input)] p-4 text-center"
           >
             <div className="aspect-square w-full rounded-xl overflow-hidden bg-black/20 flex items-center justify-center">
-              {(photoUrl || form.photoUrl) ? (
-                <img src={resolveImageUrl(photoUrl || form.photoUrl)}
-                  onError={(e)=>console.warn("[IMG ERROR]", (e.currentTarget as HTMLImageElement).src)} className="h-full w-full object-cover" />
+              {photoUrl || form.photoUrl ? (
+                <img
+                  src={resolveImageUrl(photoUrl || form.photoUrl)}
+                  onError={(e) =>
+                    console.warn(
+                      "[IMG ERROR]",
+                      (e.currentTarget as HTMLImageElement).src
+                    )
+                  }
+                  className="h-full w-full object-cover"
+                />
               ) : (
                 <div className="text-[var(--muted)] text-sm whitespace-normal break-words">
                   ยังไม่มีรูป
-                  <div className="mt-1 opacity-80">You can drag and drop images here.</div>
+                  <div className="mt-1 opacity-80">
+                    You can drag and drop images here.
+                  </div>
                 </div>
               )}
             </div>
@@ -364,7 +544,11 @@ function handlePickEmployee(e: Employee) {
                 เพิ่มรูป
               </button>
               {form.photoUrl && !photoUrl && (
-                <button type="button" onClick={() => setF({ photoUrl: "" })} className="btn btn-outline">
+                <button
+                  type="button"
+                  onClick={() => setF({ photoUrl: "" })}
+                  className="btn btn-outline"
+                >
                   ลบรูป
                 </button>
               )}
@@ -378,51 +562,184 @@ function handlePickEmployee(e: Employee) {
 
         {/* ขวา: ฟอร์ม */}
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 min-w-0">
-          <Field label="คำนำหน้าชื่อ" placeholder="เช่น นาย / นาง / นางสาว"
-            value={form.prefix ?? ""} onChange={v => setF({ prefix: v })} />
-          <Field label="ชื่อ" placeholder="ชื่อ"
-            value={form.firstName} onChange={v => setF({ firstName: v })}/>
-          <Field label="นามสกุล" placeholder="นามสกุล"
-            value={form.lastName} onChange={v => setF({ lastName: v })}/>
+          <Field
+            label="คำนำหน้าชื่อ"
+            placeholder="เช่น นาย / นาง / นางสาว"
+            value={form.prefix ?? ""}
+            onChange={(v) => setF({ prefix: v })}
+          />
+          <Field
+            label="ชื่อ"
+            placeholder="ชื่อ"
+            value={form.firstName}
+            onChange={(v) => setF({ firstName: v })}
+          />
+          <Field
+            label="นามสกุล"
+            placeholder="นามสกุล"
+            value={form.lastName}
+            onChange={(v) => setF({ lastName: v })}
+          />
 
-          <Field label="รหัสพนักงาน (EMP No.)" placeholder="เช่น EMP001"
-            value={form.empNo} onChange={v => setF({ empNo: v })}/>
-          <Field label="บัตรประชาชน" placeholder="เลขบัตรประชาชน"
-            value={form.idCard ?? ""} onChange={v => setF({ idCard: v })} />
-          <Field label="สังกัด" placeholder="สังกัด"
-            value={form.org ?? ""} onChange={v => setF({ org: v })}/>
+          <Field
+            label="รหัสพนักงาน (EMP No.)"
+            placeholder="เช่น EMP001"
+            value={form.empNo}
+            onChange={(v) => setF({ empNo: v })}
+          />
+          <Field
+            label="บัตรประชาชน"
+            placeholder="เลขบัตรประชาชน"
+            value={form.idCard ?? ""}
+            onChange={(v) => setF({ idCard: v })}
+          />
+          <label>
+            สังกัด
+            <select
+              className="neon-input w-full rounded-xl p-3"
+              value={form.orgId || ""}
+              onChange={(e) => {
+                const v = Number(e.target.value) || undefined;
+                setF({
+                  orgId: v,
+                  departmentId: undefined,
+                  divisionId: undefined,
+                  unitId: undefined,
+                });
+              }}
+            >
+              <option value="">เลือกสังกัด</option>
+              {organizations.map((org) => (
+                <option key={org.id} value={org.id}>
+                  {org.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            แผนก
+            <select
+              className="neon-input w-full rounded-xl p-3"
+              value={form.departmentId || ""}
+              onChange={(e) => {
+                const v = Number(e.target.value) || undefined;
+                setF({
+                  departmentId: v,
+                  divisionId: undefined,
+                  unitId: undefined,
+                });
+              }}
+              disabled={!departments.length}
+            >
+              <option value="">เลือกแผนก</option>
+              {departments.map((dep) => (
+                <option key={dep.id} value={dep.id}>
+                  {dep.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            ฝ่าย
+            <select
+              className="neon-input w-full rounded-xl p-3"
+              value={form.divisionId || ""}
+              onChange={(e) => {
+                const v = Number(e.target.value) || undefined;
+                setF({ divisionId: v, unitId: undefined });
+              }}
+              disabled={!divisions.length}
+            >
+              <option value="">เลือกฝ่าย</option>
+              {divisions.map((div) => (
+                <option key={div.id} value={div.id}>
+                  {div.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            หน่วย
+            <select
+              className="neon-input w-full rounded-xl p-3"
+              value={form.unitId || ""}
+              onChange={(e) =>
+                setF({ unitId: Number(e.target.value) || undefined })
+              }
+              disabled={!units.length}
+            >
+              <option value="">เลือกหน่วย</option>
+              {units.map((unit) => (
+                <option key={unit.id} value={unit.id}>
+                  {unit.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <Field
+            label="ตำแหน่ง"
+            placeholder="ตำแหน่ง"
+            value={form.position ?? ""}
+            onChange={(v) => setF({ position: v })}
+          />
 
-          <Field label="แผนก" placeholder="แผนก"
-            value={form.department ?? ""} onChange={v => setF({ department: v })}/>
-          <Field label="ฝ่าย" placeholder="ฝ่าย"
-            value={form.division ?? ""} onChange={v => setF({ division: v })}/>
-          <Field label="หน่วย" placeholder="หน่วย"
-            value={form.unit ?? ""} onChange={v => setF({ unit: v })}/>
-            <Field label="ตำแหน่ง" placeholder="ตำแหน่ง"
-              value={form.position ?? ""} onChange={v => setF({ position: v })}/>
+          <label>
+            Level P
+            <select
+              className="neon-input w-full rounded-xl p-3"
+              value={form.levelP || ""}
+              onChange={(e) => setF({ levelP: e.target.value })}
+            >
+              <option value="">เลือก Level P</option>
+              {Array.from({ length: 11 }, (_, i) => `P${i + 2}`).map((p) => (
+                <option key={p} value={p}>
+                  {p}
+                </option>
+              ))}
+            </select>
+          </label>
 
-          <Field label="Level P" placeholder="P1 / P2 / P3 ..."
-            value={form.levelP ?? ""} onChange={v => setF({ levelP: v })}/>
-
-          <Field label="Line ID" placeholder="@line id"
-            value={form.lineId ?? ""} onChange={v => setF({ lineId: v })}/>
-          <Field label="เริ่มงานวันที่" type="date"
-            value={form.startDate ?? ""} onChange={v => setF({ startDate: v })}/>
-          <Field label="วันหยุดประจำสัปดาห์ (Default)" placeholder="ตัวอย่าง อาทิตย์"
-            value={form.weeklyHoliday ?? ""} onChange={v => setF({ weeklyHoliday: v })} />
-          <Field label="Email" placeholder="Emp001@company.com" type="email"
-            value={form.email ?? ""} onChange={v => setF({ email: v })}/>
-          <Field label="Photo URL (ถ้ามี)" placeholder="https://..."
-            value={form.photoUrl ?? ""} onChange={(v) => setF({ photoUrl: v })} />
+          <Field
+            label="Line ID"
+            placeholder="@line id"
+            value={form.lineId ?? ""}
+            onChange={(v) => setF({ lineId: v })}
+          />
+          <Field
+            label="เริ่มงานวันที่"
+            type="date"
+            value={form.startDate ?? ""}
+            onChange={(v) => setF({ startDate: v })}
+          />
+          <Field
+            label="วันหยุดประจำสัปดาห์ (Default)"
+            placeholder="ตัวอย่าง อาทิตย์"
+            value={form.weeklyHoliday ?? ""}
+            onChange={(v) => setF({ weeklyHoliday: v })}
+          />
+          <Field
+            label="Email"
+            placeholder="Emp001@company.com"
+            type="email"
+            value={form.email ?? ""}
+            onChange={(v) => setF({ email: v })}
+          />
+          <Field
+            label="Photo URL (ถ้ามี)"
+            placeholder="https://..."
+            value={form.photoUrl ?? ""}
+            onChange={(v) => setF({ photoUrl: v })}
+          />
         </div>
       </div>
 
       {/* ปุ่ม */}
       <div className="mt-5 flex flex-col sm:flex-row justify-end gap-2 sm:gap-3">
-        <button type="button" 
+        <button
+          type="button"
           onClick={onClearClick}
           className="rounded-xl px-4 py-2 border border-white/10 hover:bg-white/5"
-          >
+        >
           ล้างฟอร์ม
         </button>
         <button
@@ -460,7 +777,9 @@ function Field({
 }) {
   return (
     <label className="block min-w-0">
-      <span className="mb-1 block text-sm whitespace-normal break-words">{label}</span>
+      <span className="mb-1 block text-sm whitespace-normal break-words">
+        {label}
+      </span>
       <input
         type={type}
         placeholder={placeholder}

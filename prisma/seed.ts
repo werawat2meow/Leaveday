@@ -21,6 +21,29 @@ async function main() {
             role: Role.MASTER_ADMIN,
         },
     });
+    const org = await db.organization.create({
+    data: {
+        name: "บริษัทตัวอย่าง",
+        departments: {
+        create: [
+            {
+            name: "ฝ่ายเทคโนโลยี",
+            divisions: {
+                create: [
+                {
+                    name: "แผนกพัฒนา",
+                    units: {
+                    create: [{ name: "ทีม A" }, { name: "ทีม B" }]
+                    }
+                }
+                ]
+            }
+            }
+        ]
+        }
+    }
+    });
+    console.log("Seeded organization:", org.name);
 
     console.log("Seeded master admin:", email);
 }
