@@ -33,6 +33,7 @@ type LeaveRequest = {
       avatar?: string | null;
     };
   };
+  attachments?: { id: number; name: string; url: string; mine?: string }[];
 };
 
 /* ---------------- API Functions ---------------- */
@@ -44,7 +45,28 @@ async function fetchLeaveRequests(): Promise<LeaveRequest[]> {
 
     console.log('🔄 [Approvals] API Response:', data);
     const result = Array.isArray(data) ? data : data.data || [];
-    return result;
+
+    return result.map((r: any) => {
+      // normalize various attachment shapes into [{ id, name, url }]
+      const raw = r.attachments || r.files || r.fileList || (Array.isArray(r.attachments?.data) ? r.attachments.data : null) || [];
+      let attachments: any[] = [];
+
+      if (Array.isArray(raw) && raw.length > 0) {
+        attachments = raw.map((a: any, idx: number) => ({
+          id: a.id ?? idx,
+          name: a.name ?? a.filename ?? a.originalname ?? `file-${idx}`,
+          url: a.url || a.path || a.fileUrl || a.file || a.file_path || a.attachmentUrl || ""
+        }));
+      } else if (r.attachmentUrl) {
+        attachments = [{
+          id: `single-${r.id}`,
+          name: r.attachmentName ?? r.attachmentFilename ?? (r.attachmentUrl.split('/').pop() || 'attachment'),
+          url: r.attachmentUrl
+        }];
+      }
+
+      return { ...r, attachments };
+    });
   } catch (error) {
     console.error('Error fetching leave requests:', error);
     return [];
@@ -199,7 +221,11 @@ export default function ApprovalsPage() {
     });
   }, [data, q, fOrg, fDept, fDivision, fUnit]);
 
-  const selected = useMemo(() => data.find((d) => d.id === selectedId) || null, [data, selectedId]);
+    const selected = useMemo(() => {
+      const s = data.find((d) => d.id === selectedId) || null;
+      if (typeof window !== "undefined") console.log('Selected row:', s);
+      return s;
+    }, [data, selectedId]);
 
   // selection helpers
   const toggleRow = (id: number) =>
@@ -291,6 +317,33 @@ export default function ApprovalsPage() {
     }
   };
 
+  // --- attachment helper
+  const openAttachment = (url: string) => {
+    if (typeof window === "undefined") return;
+    window.open(url, "_blank", "noopener");
+  };
+
+  const downloadAttachment = async (url: string, filename?: string) => {
+    if (typeof window === "undefined") return;
+    try {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error("Failed to fetch file");
+      const blob = await res.blob();
+      const a = document.createElement("a");
+      const objectUrl = URL.createObjectURL(blob);
+      a.href = objectUrl;
+      a.download = filename || "";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(objectUrl);
+    } catch (err) {
+      console.error("Download failed", err);
+      setToast({ type: "error", msg: "ดาวน์โหลดไฟล์ล้มเหลว" });
+      setTimeout(() => setToast(null), 2000);
+    }
+  };
+
   return (
     <section className="neon-card rounded-2xl p-6 text-slate-900 dark:text-slate-100">
       <div className="flex items-center justify-between">
@@ -300,13 +353,13 @@ export default function ApprovalsPage() {
             className="rounded-lg px-4 py-2 bg-yellow-200 text-yellow-900 hover:bg-yellow-300 border border-yellow-300 dark:bg-yellow-900/30 dark:text-yellow-200 dark:hover:bg-yellow-800"
             onClick={() => { setShowHistoryModal(true) }}
           >
-            ดูประวัติการลา
+            ประวัติการลา
           </button>
           <button
             className="rounded-lg px-4 py-2 bg-orange-300 text-orange-900 hover:bg-orange-400 border border-orange-400 dark:bg-orange-900/30 dark:text-orange-200 dark:hover:bg-orange-800"
             onClick={() => setShowCalendarModal(true)}
           >
-            ดูปฏิทินภาพรวม
+            ปฏิทินภาพรวม
           </button>
         </div>
       </div>
@@ -522,6 +575,51 @@ export default function ApprovalsPage() {
               </div>
             </div>
 
+            {/* attachments */}
+            <div>
+              <div className="mb-1 text-sm text-slate-900 dark:text-slate-100">ไฟล์แนบ</div>
+              <div className="rounded-xl border p-2 border-slate-300 bg-white dark:border-white/10 dark:bg-slate-800/80">
+                {selected?.attachments && selected.attachments.length > 0 ? (
+                  <div className="flex flex-col gap-2">
+                    {selected.attachments.map((att) => {
+                      const url = (att as any).url || (att as any).attachmentUrl || "";
+                      const name = (att as any).name || (att as any).filename || url.split('/').pop() || "ไฟล์แนบ";
+                      return (
+                        <div key={(att as any).id ?? name} className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 py-1">
+                          <div className="min-w-0 flex-1">
+                            <div className="text-sm text-slate-800 dark:text-slate-100 truncate">{name}</div>
+                            {(att as any).description && <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">{(att as any).description}</div>}
+                          </div>
+                          <div className="flex gap-2 mt-2 sm:mt-0">
+                            <button
+                              type="button"
+                              onClick={() => url && openAttachment(url)}
+                              className="px-3 py-1 bg-yellow-400 text-yellow-900 rounded-lg hover:bg-yellow-500"
+                            >
+                              ดู
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => url && downloadAttachment(url, name)}
+                              className="px-3 py-1 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700"
+                            >
+                              ดาวน์โหลด
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="text-sm text-slate-500 dark:text-slate-400">ไม่มีไฟล์แนบ</div>
+                )}
+              </div>
+            </div>
+            {/* <div className="mt-2">
+              <div className="text-xs text-slate-400">DEBUG: selected object</div>
+              <pre className="text-xs text-white bg-black/20 p-2 rounded max-h-40 overflow-auto">{JSON.stringify(selected, null, 2)}</pre>
+            </div> */}
+
             {/* approval info if resolved */}
             {selected.status !== "PENDING" && (
               <div className="border-t pt-4 border-slate-200 dark:border-slate-700">
@@ -583,7 +681,7 @@ export default function ApprovalsPage() {
                   {savedSignatureExists && (
                     <button
                       type="button"
-                      className="px-4 py-2 bg-gray-300 text-gray-800 rounded-lg hover:bg-gray-400 flex-shrink-0 w-full sm:w-auto"
+                      className="px-4 py-2 bg-orange-400 text-orange-900 rounded-lg hover:bg-orange-500 flex-shrink-0 w-full sm:w-auto"
                       onClick={deleteSavedSignature}
                     >
                       ลบลายเซ็นที่บันทึกไว้
@@ -599,7 +697,7 @@ export default function ApprovalsPage() {
 
                   <button
                     onClick={saveSignature}
-                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex-shrink-0 w-full sm:w-auto"
+                    className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 flex-shrink-0 w-full sm:w-auto"
                   >
                     บันทึกลายเซ็น
                   </button>
