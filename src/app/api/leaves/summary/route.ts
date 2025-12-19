@@ -10,6 +10,8 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "unauthorized" }, { status: 401 });
     }
 
+    const now = new Date();
+
     // ปีปัจจุบัน (หรือจะรับจาก query ก็ได้)
     const year = new Date().getFullYear();
 
@@ -18,19 +20,41 @@ export async function GET(req: NextRequest) {
       where: { email: session.user.email },
       include: { employee: true },
     });
-    if (!user || !user.employee)
+    if (!user || !user.employee) {
       return NextResponse.json({ error: "no user/employee" }, { status: 400 });
+    }
 
     // ดึง LeaveRights สำหรับปีนี้
     const rights = await prisma.leaveRights.findFirst({
       where: { employeeId: user.employee.id, year },
     });
 
-    // รวม carry forward กับสิทธิ์ปีนี้
-    const annualTotal =
-      (rights?.annualLeave ?? 0) + (rights?.carryForwardAnnual ?? 0);
-    const holidayTotal =
-      (rights?.holidayLeave ?? 0) + (rights?.carryForwardHoliday ?? 0);
+    // ===== FIX: แยก "ยอดยกทั้งหมด" ออกจาก "ยอดยกที่ยังใช้ได้วันนี้" =====
+    const cfAnnualTotal = Number(rights?.carryForwardAnnual ?? 0);
+    const cfAnnualExpiry = rights?.carryForwardAnnualExpiry
+      ? new Date(rights.carryForwardAnnualExpiry)
+      : null;
+    const cfAnnualActiveNow = !!(
+      cfAnnualTotal > 0 &&
+      cfAnnualExpiry &&
+      cfAnnualExpiry > now
+    );
+    const carryAllowedAnnual = cfAnnualActiveNow ? cfAnnualTotal : 0;
+
+    const cfHolidayTotal = Number(rights?.carryForwardHoliday ?? 0);
+    const cfHolidayExpiry = rights?.carryForwardHolidayExpiry
+      ? new Date(rights.carryForwardHolidayExpiry)
+      : null;
+    const cfHolidayActiveNow = !!(
+      cfHolidayTotal > 0 &&
+      cfHolidayExpiry &&
+      cfHolidayExpiry > now
+    );
+    const carryAllowedHoliday = cfHolidayActiveNow ? cfHolidayTotal : 0;
+
+    // totals = สิทธิ์ที่ "ใช้ได้ตอนนี้" (รวมยอดยกเฉพาะถ้ายังไม่หมดอายุ)
+    const annualTotal = (rights?.annualLeave ?? 0) + carryAllowedAnnual;
+    const holidayTotal = (rights?.holidayLeave ?? 0) + carryAllowedHoliday;
 
     // ประเภทการลาทั้งหมด
     const kinds = [
@@ -42,11 +66,12 @@ export async function GET(req: NextRequest) {
       "MATERNITY",
       "UNPAID",
       "ANNUAL_HOLIDAY",
-    ];
+    ] as const;
 
     // สรุปยอดใช้แต่ละประเภท
     const summary: Record<string, number> = {};
-    // ดึงยอดใช้ลาแต่ละประเภท
+
+    // ดึงยอดใช้ลาแต่ละประเภท (รวมทุก kind)
     const aggAll = await prisma.leave.findMany({
       where: {
         userId: user.id,
@@ -61,6 +86,7 @@ export async function GET(req: NextRequest) {
         requestedDays: true,
       },
     });
+
     // รวมยอดใช้แต่ละประเภท
     for (const kind of kinds) {
       summary[kind] = aggAll
@@ -68,33 +94,113 @@ export async function GET(req: NextRequest) {
         .reduce((sum, l) => sum + Number(l.requestedDays ?? 0), 0);
     }
 
-    // --- ปรับ logic ให้ ANNUAL/ANNUAL_HOLIDAY แสดงเฉพาะยอดที่หักจากสิทธิ์ปีปัจจุบัน ---
-    const usedAnnual = summary["ANNUAL"] ?? 0;
-    let usedFromCF = Math.min(usedAnnual, rights?.carryForwardAnnual ?? 0);
-    let usedFromCurrent = usedAnnual - usedFromCF;
-    let remainCarryForwardAnnual =
-      (rights?.carryForwardAnnual ?? 0) - usedFromCF;
-    let remainVacationLeave = (rights?.vacationLeave ?? 0) - usedFromCurrent;
+    // ===== FIX: ANNUAL คำนวณแบบ per-leave ตามวันที่ลา (กัน re-allocation เมื่อหมดอายุ) =====
+    let usedAnnualFromCF = 0;
+    let usedAnnualFromCurrent = 0;
 
-    // ให้ ANNUAL แสดงเฉพาะยอดที่หักจาก vacationLeave จริง
-    summary["ANNUAL"] = usedFromCurrent > 0 ? usedFromCurrent : 0;
+    // ใช้ "ยอดยกทั้งหมด" เพื่อจัดสรรย้อนหลัง
+    let annualCfRemain = cfAnnualTotal;
+    let annualCurrentRemain = rights?.vacationLeave ?? 0;
 
-    const usedHoliday = summary["ANNUAL_HOLIDAY"] ?? 0;
-    let usedHolidayFromCF = Math.min(
-      usedHoliday,
-      rights?.carryForwardHoliday ?? 0
-    );
-    let usedHolidayFromCurrent = usedHoliday - usedHolidayFromCF;
-    let remainCarryForwardHoliday =
-      (rights?.carryForwardHoliday ?? 0) - usedHolidayFromCF;
-    let remainHolidayLeave =
-      (rights?.holidayLeave ?? 0) - usedHolidayFromCurrent;
+    const sortedAnnualLeaves = await prisma.leave.findMany({
+      where: {
+        userId: user.id,
+        kind: "ANNUAL",
+        status: { in: ["APPROVED", "PENDING"] },
+        startDate: {
+          gte: new Date(`${year}-01-01`),
+          lt: new Date(`${year + 1}-01-01`),
+        },
+      },
+      select: {
+        requestedDays: true,
+        startDate: true,
+      },
+      orderBy: { startDate: "asc" },
+    });
 
-    // ให้ ANNUAL_HOLIDAY แสดงเฉพาะยอดที่หักจาก holidayLeave จริง
+    for (const leave of sortedAnnualLeaves) {
+      const leaveDays = Number(leave.requestedDays ?? 0);
+      const leaveDate = new Date(leave.startDate);
+
+      // ใช้ยอดยกได้เฉพาะ "วันที่ลา" < "วันหมดอายุ"
+      if (annualCfRemain > 0 && cfAnnualExpiry && leaveDate < cfAnnualExpiry) {
+        const useCF = Math.min(annualCfRemain, leaveDays);
+        usedAnnualFromCF += useCF;
+        annualCfRemain -= useCF;
+
+        const spill = leaveDays - useCF;
+        if (spill > 0) {
+          usedAnnualFromCurrent += spill;
+          annualCurrentRemain -= spill;
+        }
+      } else {
+        usedAnnualFromCurrent += leaveDays;
+        annualCurrentRemain -= leaveDays;
+      }
+    }
+
+    // ถ้าวันนี้หมดอายุแล้ว แสดงยอดยกคงเหลือเป็น 0 (แต่ไม่ย้ายไปหักปีนี้)
+    const remainCarryForwardAnnual = cfAnnualActiveNow ? annualCfRemain : 0;
+    const remainVacationLeave = annualCurrentRemain;
+
+    // ให้ ANNUAL แสดงเฉพาะยอดที่หักจาก vacationLeave (สิทธิ์ปีนี้) จริง
+    summary["ANNUAL"] = usedAnnualFromCurrent > 0 ? usedAnnualFromCurrent : 0;
+
+    // ===== FIX: ANNUAL_HOLIDAY ทำแบบเดียวกัน (ป้องกัน bug แบบเดียวกัน) =====
+    let usedHolidayFromCF = 0;
+    let usedHolidayFromCurrent = 0;
+
+    let holidayCfRemain = cfHolidayTotal;
+    let holidayCurrentRemain = rights?.holidayLeave ?? 0;
+
+    const sortedHolidayLeaves = await prisma.leave.findMany({
+      where: {
+        userId: user.id,
+        kind: "ANNUAL_HOLIDAY",
+        status: { in: ["APPROVED", "PENDING"] },
+        startDate: {
+          gte: new Date(`${year}-01-01`),
+          lt: new Date(`${year + 1}-01-01`),
+        },
+      },
+      select: {
+        requestedDays: true,
+        startDate: true,
+      },
+      orderBy: { startDate: "asc" },
+    });
+
+    for (const leave of sortedHolidayLeaves) {
+      const leaveDays = Number(leave.requestedDays ?? 0);
+      const leaveDate = new Date(leave.startDate);
+
+      if (holidayCfRemain > 0 && cfHolidayExpiry && leaveDate < cfHolidayExpiry) {
+        const useCF = Math.min(holidayCfRemain, leaveDays);
+        usedHolidayFromCF += useCF;
+        holidayCfRemain -= useCF;
+
+        const spill = leaveDays - useCF;
+        if (spill > 0) {
+          usedHolidayFromCurrent += spill;
+          holidayCurrentRemain -= spill;
+        }
+      } else {
+        usedHolidayFromCurrent += leaveDays;
+        holidayCurrentRemain -= leaveDays;
+      }
+    }
+
+    const remainCarryForwardHoliday = cfHolidayActiveNow ? holidayCfRemain : 0;
+    const remainHolidayLeave = holidayCurrentRemain;
+
     summary["ANNUAL_HOLIDAY"] =
       usedHolidayFromCurrent > 0 ? usedHolidayFromCurrent : 0;
 
-    // เพิ่มข้อมูล carry forward และสิทธิ์รวมใน response
+    // totals คงเหลือ = (ยอดยกที่ยังใช้ได้วันนี้) + (สิทธิ์ปีนี้ที่เหลือ)
+    const totalRemainAnnual = remainCarryForwardAnnual + remainVacationLeave;
+    const totalRemainHoliday = remainCarryForwardHoliday + remainHolidayLeave;
+
     return NextResponse.json({
       ok: true,
       data: {
@@ -109,14 +215,8 @@ export async function GET(req: NextRequest) {
         remainVacationLeave,
         remainCarryForwardHoliday,
         remainHolidayLeave,
-        totalRemainAnnual:
-          remainCarryForwardAnnual > 0
-            ? remainCarryForwardAnnual
-            : remainVacationLeave,
-        totalRemainHoliday:
-          remainCarryForwardHoliday > 0
-            ? remainCarryForwardHoliday
-            : remainHolidayLeave,
+        totalRemainAnnual,
+        totalRemainHoliday,
       },
     });
   } catch (error) {

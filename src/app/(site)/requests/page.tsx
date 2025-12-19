@@ -3,8 +3,14 @@
 import LeaveHistoryModal, {
   LeaveHistoryItem,
 } from "@/components/LeaveHistoryModal";
+import { format, parseISO } from "date-fns";
+import { th } from "date-fns/locale/th";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
+import DatePicker, { registerLocale } from "react-datepicker";
+import "react-datepicker/dist/react-datepicker.css";
+
+registerLocale("th", th);
 
 type LeaveKind =
   | "ANNUAL"
@@ -386,12 +392,14 @@ export default function LeavePage() {
         });
 
         const raw = await res.json();
+        console.log("leave-rights API raw:", raw);
         setAllRights(
           (raw?.data || []).map((r: any) => ({
-            level: r.prefix,
-            vacation: r.annualLeaveDays,
-            business: r.businessLeaveDays,
-            sick: r.sickLeaveDays,
+            level: r.prefix ?? r.level ?? "",
+            vacation:
+              r.vacationLeaveDays ?? r.annualLeaveDays ?? r.vacation ?? 0,
+            business: r.businessLeaveDays ?? r.business ?? 0,
+            sick: r.sickLeaveDays ?? r.sick ?? 0,
           }))
         );
       } catch (e: any) {
@@ -1414,6 +1422,7 @@ function Input({
   type = "text",
   required,
   readOnly,
+  lang,
 }: {
   label: string;
   value: string;
@@ -1421,7 +1430,34 @@ function Input({
   type?: string;
   required?: boolean;
   readOnly?: boolean;
+  lang?: string;
 }) {
+  if (type === "date") {
+    const selected = value ? parseISO(value as string) : null;
+    return (
+      <label className="block">
+        <span className="mb-1 block text-sm">
+          {label}
+          {required && <span className="text-red-400"> *</span>}
+        </span>
+        <DatePicker
+          selected={selected}
+          onChange={(d: Date | null) =>
+            onChange?.(d ? format(d, "yyyy-MM-dd") : "")
+          }
+          dateFormat="dd/MM/yyyy"
+          locale="th"
+          placeholderText="dd/MM/yyyy"
+          wrapperClassName="w-full"
+          className={`neon-input w-full rounded-xl p-3 ${
+            readOnly ? "opacity-70" : ""
+          }`}
+          disabled={readOnly}
+        />
+      </label>
+    );
+  }
+
   return (
     <label className="block">
       <span className="mb-1 block text-sm">
@@ -1434,6 +1470,7 @@ function Input({
         readOnly={readOnly}
         onChange={(e) => onChange?.(e.target.value)}
         required={required}
+        lang={lang}
         className={`neon-input w-full rounded-xl p-3 ${
           readOnly ? "opacity-70" : ""
         }`}

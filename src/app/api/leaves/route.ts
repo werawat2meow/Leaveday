@@ -176,11 +176,16 @@ export async function POST(req: NextRequest) {
 
     const entitled = (() => {
       switch (kind as string) {
-        case "ANNUAL":
-          return (
-            (rights?.vacationLeave ?? rights?.annualLeave ?? 0) +
-            (rights?.carryForwardAnnual ?? 0)
-          );
+        case "ANNUAL": {
+          const base = rights?.vacationLeave ?? rights?.annualLeave ?? 0;
+          const carry =
+            rights?.carryForwardAnnual && rights?.carryForwardAnnualExpiry
+              ? new Date(rights.carryForwardAnnualExpiry) > new Date()
+                ? Number(rights.carryForwardAnnual)
+                : 0
+              : 0;
+          return base + carry;
+        }
         case "BUSINESS":
           return rights?.businessLeave ?? 0;
         case "SICK":
@@ -193,10 +198,16 @@ export async function POST(req: NextRequest) {
           return rights?.maternityLeave ?? 0;
         case "UNPAID":
           return rights?.unpaidLeave ?? 0;
-        case "ANNUAL_HOLIDAY":
-          return (
-            (rights?.holidayLeave ?? 0) + (rights?.carryForwardHoliday ?? 0)
-          );
+        case "ANNUAL_HOLIDAY": {
+          const baseH = rights?.holidayLeave ?? 0;
+          const carryH =
+            rights?.carryForwardHoliday && rights?.carryForwardHolidayExpiry
+              ? new Date(rights.carryForwardHolidayExpiry) > new Date()
+                ? Number(rights.carryForwardHoliday)
+                : 0
+              : 0;
+          return baseH + carryH;
+        }
         default:
           return 0;
       }

@@ -28,25 +28,27 @@ export async function GET() {
 
         //จัดกลุ่มตามเดือน
         const monthlyLeaves = Array.from({ length: 12 }, (_, i) => {
-            const month = i +1;
-            const monthName = new Date(2025, i).toLocaleDateString('en', { month: 'short' });
+            const monthName = new Date(currentYear, i, 1).toLocaleDateString("en", { month: "short" });
 
             const monthdata = monthlyData.filter(item =>
                 new Date(item.startDate).getMonth() === i
             );
 
-            const totalDays = monthlyData.reduce((sum, item) =>
-                sum + Number(item._sum.requestedDays || 0), 0
+            const totalDays = monthdata.reduce(
+                (sum, item) => sum + Number(item._sum.requestedDays || 0),
+                0
             );
-            const totalRequests = monthlyData.reduce((sum, item) => 
-                sum + item._count, 0
+
+            const totalRequests = monthdata.reduce(
+                (sum, item) => sum + item._count,
+                0
             );
 
             return {
                 m: monthName,
-                avgDays: totalRequests > 0 ? Number((totalDays / totalRequests). toFixed(1)) : 0
+                avgDays: totalRequests > 0 ? Number((totalDays / totalRequests).toFixed(1)) : 0
             };
-        });
+            });
 
         //         const monthlyLeaves = [
         //   { m: "Jan", avgDays: 0.8 },
