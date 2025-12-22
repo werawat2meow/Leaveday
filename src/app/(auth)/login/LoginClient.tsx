@@ -128,12 +128,12 @@ export default function LoginClient() {
       )}
       <div className="flex flex-col items-center gap-4 w-full max-w-xl relative z-10">
         <section className="neon-card w-full rounded-2xl p-7 text-center">
-          <img
+          {/* <img
           src="/HRM-w.gif"
           alt="HR Logo"
           className="mx-auto w-80 object-contain"
-        />
-          <form onSubmit={onSubmit} className="grid gap-4 text-left">
+        /> */}
+          <form onSubmit={onSubmit} className="grid gap-4 text-left mt-10">
             <label className="block">
               <span className="sr-only">Email</span>
               <input
