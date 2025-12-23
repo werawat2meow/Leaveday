@@ -112,8 +112,15 @@ export async function POST(req: NextRequest) {
 
       // สร้าง LeaveRights ให้ employee (ใช้ปีปัจจุบัน)
       if (template) {
-        await tx.leaveRights.create({
-          data: {
+        await tx.leaveRights.upsert({
+          where: {
+            employeeId_year: {
+              employeeId: created.id,
+              year: new Date().getFullYear(),
+            },
+          },
+          update: {},
+          create: {
             employeeId: created.id,
             year: new Date().getFullYear(),
             annualLeave: template.annualLeaveDays,
@@ -129,8 +136,15 @@ export async function POST(req: NextRequest) {
         });
       } else {
         // ถ้าไม่มี template ให้สร้าง LeaveRights ด้วยค่า default เป็น 0
-        await tx.leaveRights.create({
-          data: {
+        await tx.leaveRights.upsert({
+          where: {
+            employeeId_year: {
+              employeeId: created.id,
+              year: new Date().getFullYear(),
+            },
+          },
+          update: {},
+          create: {
             employeeId: created.id,
             year: new Date().getFullYear(),
             annualLeave: 0,

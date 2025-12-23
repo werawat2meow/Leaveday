@@ -1,12 +1,14 @@
-import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { NextResponse } from "next/server";
 
 // GET: ดึง leave rights template ทั้งหมด (สิทธิ์การลาตามตำแหน่ง default)
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const prefix = searchParams.get("prefix");
   if (prefix) {
-    const template = await prisma.leaveRightsTemplate.findFirst({ where: { prefix } });
+    const template = await prisma.leaveRightsTemplate.findFirst({
+      where: { prefix },
+    });
     if (!template) {
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
@@ -42,30 +44,42 @@ export async function PUT(req: Request) {
           where: { id },
           data: {
             prefix: r.level,
-            maternityLeaveDays: r.maternity === undefined ? 0 : Number(r.maternity),
+            maternityLeaveDays:
+              r.maternity === undefined ? 0 : Number(r.maternity),
             ordainLeaveDays: r.ordain === undefined ? 0 : Number(r.ordain),
-            annualLeaveDays: r.annualHoliday === undefined ? 0 : Number(r.annualHoliday),
-            holidayLeaveDays: r.annualHoliday === undefined ? 0 : Number(r.annualHoliday),
-            vacationLeaveDays: r.vacation === undefined ? 0 : Number(r.vacation),
-            businessLeaveDays: r.business === undefined ? 0 : Number(r.business),
+            annualLeaveDays:
+              r.annualHoliday === undefined ? 0 : Number(r.annualHoliday),
+            holidayLeaveDays:
+              r.annualHoliday === undefined ? 0 : Number(r.annualHoliday),
+            vacationLeaveDays:
+              r.vacation === undefined ? 0 : Number(r.vacation),
+            businessLeaveDays:
+              r.business === undefined ? 0 : Number(r.business),
             sickLeaveDays: r.sick === undefined ? 0 : Number(r.sick),
             unpaidLeaveDays: r.unpaid === undefined ? 0 : Number(r.unpaid),
-            birthdayLeaveDays: r.birthday === undefined ? 0 : Number(r.birthday),
+            birthdayLeaveDays:
+              r.birthday === undefined ? 0 : Number(r.birthday),
           },
         });
       } else {
         await prisma.leaveRightsTemplate.create({
           data: {
             prefix: r.level,
-            maternityLeaveDays: r.maternity === undefined ? 0 : Number(r.maternity),
+            maternityLeaveDays:
+              r.maternity === undefined ? 0 : Number(r.maternity),
             ordainLeaveDays: r.ordain === undefined ? 0 : Number(r.ordain),
-            annualLeaveDays: r.annualHoliday === undefined ? 0 : Number(r.annualHoliday),
-            holidayLeaveDays: r.annualHoliday === undefined ? 0 : Number(r.annualHoliday),
-            vacationLeaveDays: r.vacation === undefined ? 0 : Number(r.vacation),
-            businessLeaveDays: r.business === undefined ? 0 : Number(r.business),
+            annualLeaveDays:
+              r.annualHoliday === undefined ? 0 : Number(r.annualHoliday),
+            holidayLeaveDays:
+              r.annualHoliday === undefined ? 0 : Number(r.annualHoliday),
+            vacationLeaveDays:
+              r.vacation === undefined ? 0 : Number(r.vacation),
+            businessLeaveDays:
+              r.business === undefined ? 0 : Number(r.business),
             sickLeaveDays: r.sick === undefined ? 0 : Number(r.sick),
             unpaidLeaveDays: r.unpaid === undefined ? 0 : Number(r.unpaid),
-            birthdayLeaveDays: r.birthday === undefined ? 0 : Number(r.birthday),
+            birthdayLeaveDays:
+              r.birthday === undefined ? 0 : Number(r.birthday),
           },
         });
       }
@@ -79,28 +93,37 @@ export async function PUT(req: Request) {
   }
 }
 
-export async function POST(req: NextResponse) {
+export async function POST(req: Request) {
   try {
-    const { employeeId, year, annualLeave, holidayLeave, ...otherFields } = await req.json();
+    const { employeeId, year, annualLeave, holidayLeave, ...otherFields } =
+      await req.json();
 
     // ดึง LeaveRights ของปีที่แล้ว
-    const lastYearRights = await prisma.leaveRights.findFirst({
-      where: { employeeId, year: year - 1 },
+    const lastYearRights = await prisma.leaveRights.findUnique({
+      where: { employeeId_year: { employeeId, year: year - 1 } },
     });
 
     //คำนวณ carry forward (ถ้ามี)
-    const carryForwardAnnual = lastYearRights?.annualLeave ?? 0;
+    // ✅ Carry forward should come from previous year's *remaining* balance.
+    // In this codebase: vacationLeave / holidayLeave are decremented on approval and represent remaining.
+    const carryForwardAnnual = lastYearRights?.vacationLeave ?? 0;
     const carryForwardHoliday = lastYearRights?.holidayLeave ?? 0;
-    const employee = await prisma.employee.findUnique({ where: { id: employeeId } });
-    const startDate = employee?.startDate ? new Date(employee.startDate) : new Date(`${year}-01-01`);
+    const employee = await prisma.employee.findUnique({
+      where: { id: employeeId },
+    });
+    const startDate = employee?.startDate
+      ? new Date(employee.startDate)
+      : new Date(`${year}-01-01`);
     const carryForwardAnnualExpiry = new Date(startDate);
     carryForwardAnnualExpiry.setFullYear(year);
 
-    const carryForwardHolidayExpiry = new Date(`${year + 1}-09-30`);
+    const carryForwardHolidayExpiry = new Date(`${year}-09-30T00:00:00.000Z`);
 
     // สร้าง LeaveRights สำหรับปีใหม่
-    const newRights = await prisma.leaveRights.create({
-      data: {
+    const newRights = await prisma.leaveRights.upsert({
+      where: { employeeId_year: { employeeId, year } },
+      update: {},
+      create: {
         employeeId,
         year,
         annualLeave,

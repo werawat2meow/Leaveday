@@ -617,15 +617,33 @@ export default function LeavePage() {
   return (
     <main className="min-h-dvh bg-[var(--bg)] text-[var(--text)]">
       <div className="mx-auto max-w-6xl px-4 pt-4">
-        <div className="flex justify-end">
+        <div className="flex justify-end gap-2">
+          <a
+            href="/manual/user.pdf"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="
+              rounded-xl px-4 py-2 font-extrabold
+              bg-rose-600 text-white
+              shadow-[0_10px_28px_rgba(244,63,94,0.35)]
+              hover:bg-rose-500
+              hover:shadow-[0_14px_36px_rgba(244,63,94,0.45)]
+              focus:outline-none focus:ring-2 focus:ring-rose-400/60
+              active:translate-y-[1px]
+              transition
+            "
+          >
+            คู่มือการใช้งาน
+          </a>
+
           <button
             onClick={() => setOpenHistory(true)}
             className="rounded-xl px-4 py-2 font-extrabold
-             bg-[var(--cyan)] text-[#001418]
-             shadow-[0_10px_28px_var(--cyan-soft)]
-             hover:shadow-[0_14px_36px_var(--cyan-soft)]
-             focus:outline-none focus:ring-2 focus:ring-[var(--cyan)]/50
-             active:translate-y-[1px] transition"
+              bg-[var(--cyan)] text-[#001418]
+              shadow-[0_10px_28px_var(--cyan-soft)]
+              hover:shadow-[0_14px_36px_var(--cyan-soft)]
+              focus:outline-none focus:ring-2 focus:ring-[var(--cyan)]/50
+              active:translate-y-[1px] transition"
           >
             ประวัติการลา
           </button>

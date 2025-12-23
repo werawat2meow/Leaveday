@@ -286,8 +286,15 @@ export async function POST(req: NextRequest) {
             typeof row.birthdayDays !== "undefined";
 
           if (hasExplicit) {
-            await tx.leaveRights.create({
-              data: {
+            await tx.leaveRights.upsert({
+              where: {
+                employeeId_year: {
+                  employeeId: created.id,
+                  year: new Date().getFullYear(),
+                },
+              },
+              update: {},
+              create: {
                 employeeId: created.id,
                 year: new Date().getFullYear(),
                 annualLeave: Number(row.annualHolidays) || 0,
@@ -302,8 +309,15 @@ export async function POST(req: NextRequest) {
               },
             });
           } else if (lrTemplate) {
-            await tx.leaveRights.create({
-              data: {
+            await tx.leaveRights.upsert({
+              where: {
+                employeeId_year: {
+                  employeeId: created.id,
+                  year: new Date().getFullYear(),
+                },
+              },
+              update: {},
+              create: {
                 employeeId: created.id,
                 year: new Date().getFullYear(),
                 annualLeave: lrTemplate.annualLeaveDays,
@@ -318,8 +332,15 @@ export async function POST(req: NextRequest) {
               },
             });
           } else {
-            await tx.leaveRights.create({
-              data: {
+            await tx.leaveRights.upsert({
+              where: {
+                employeeId_year: {
+                  employeeId: created.id,
+                  year: new Date().getFullYear(),
+                },
+              },
+              update: {},
+              create: {
                 employeeId: created.id,
                 year: new Date().getFullYear(),
                 annualLeave: 0,

@@ -90,6 +90,10 @@ model Leave {
   // ✅ เก็บจำนวน "วันทำการที่นับแล้ว" (รองรับ .5)
   requestedDays Decimal @default(0.0) @db.Decimal(5,2)
 
+  // เก็บแผนการกันสิทธิ์/หักสิทธิ์ที่คำนวณตอนสร้างคำขอ (แยกตามปี)
+  // รูปแบบตัวอย่าง: { "2025": { "cf": 1, "current": 0 } }
+  reservation Json?
+
   status     LeaveStatus @default(PENDING)
   approvedAt DateTime?
 
@@ -218,6 +222,8 @@ model LeaveRights {
     unpaidLeave               Int      @default(0)
     birthdayLeave             Int      @default(0)
   employee                  Employee @relation(fields: [employeeId], references: [id])
+
+  @@unique([employeeId, year], name: "employeeId_year")
 }
 
 model LeaveRightsTemplate {

@@ -1,8 +1,70 @@
 import { authOptions } from "@/lib/auth";
+import { ensureLeaveRightsForYear } from "@/lib/leave-rights-rollover";
 import { countBusinessDays, normalizeSession } from "@/lib/leave-utils";
+import {
+  countBusinessDaysByYear,
+  splitRangeByYear,
+} from "@/lib/leave-year-split";
 import { prisma } from "@/lib/prisma";
 import { getServerSession } from "next-auth";
 import { NextRequest, NextResponse } from "next/server";
+
+type HalfSession = "FULL" | "AM" | "PM";
+
+function yearStart(y: number) {
+  return new Date(`${y}-01-01T00:00:00.000Z`);
+}
+
+function yearEnd(y: number) {
+  return new Date(`${y}-12-31T00:00:00.000Z`);
+}
+
+async function holidaySetForYear(year: number) {
+  const holidays = await prisma.holiday.findMany({
+    where: {
+      date: {
+        gte: new Date(`${year}-01-01`),
+        lt: new Date(`${year + 1}-01-01`),
+      },
+    },
+    select: { date: true },
+  });
+  return new Set(holidays.map((h) => h.date.toISOString().slice(0, 10)));
+}
+
+function overlapDaysInYear(params: {
+  leaveStart: Date;
+  leaveEnd: Date;
+  leaveSession: HalfSession | null;
+  year: number;
+  holidays: Set<string>;
+  weeklyHoliday?: string | null;
+}) {
+  const { leaveStart, leaveEnd, leaveSession, year, holidays, weeklyHoliday } =
+    params;
+  const ys = yearStart(year);
+  const ye = yearEnd(year);
+
+  const segStart = leaveStart > ys ? leaveStart : ys;
+  const segEnd = leaveEnd < ye ? leaveEnd : ye;
+  if (segEnd < segStart) return 0;
+
+  const includesOriginalStart =
+    leaveStart.getFullYear() === year &&
+    leaveStart.toISOString().slice(0, 10) ===
+      segStart.toISOString().slice(0, 10);
+
+  const session: HalfSession = includesOriginalStart
+    ? leaveSession ?? "FULL"
+    : "FULL";
+  return countBusinessDays(
+    segStart,
+    segEnd,
+    session,
+    holidays,
+    weeklyHoliday ?? undefined
+  );
+}
 
 export async function GET(req: Request) {
   try {
@@ -129,26 +191,29 @@ export async function POST(req: NextRequest) {
     const end = new Date(endDate);
     const sNorm = normalizeSession(sessionLabel);
 
-    const year = start.getFullYear();
-    const holidays = await prisma.holiday.findMany({
-      where: {
-        date: {
-          gte: new Date(`${year}-01-01`),
-          lt: new Date(`${year + 1}-01-01`),
-        },
-      },
-      select: { date: true },
-    });
-    const setH = new Set(
-      holidays.map((h) => h.date.toISOString().slice(0, 10))
+    // คำนวณวันลาแยกตามปี (รองรับลาคร่อมปี)
+    const segments = splitRangeByYear(start, end);
+    const years = Array.from(new Set(segments.map((s) => s.year)));
+    const holidaysByYear: Record<number, Set<string>> = {};
+    await Promise.all(
+      years.map(async (y) => {
+        holidaysByYear[y] = await holidaySetForYear(y);
+      })
     );
-    const requestedDays = countBusinessDays(
+
+    const requestedByYear = countBusinessDaysByYear({
       start,
       end,
-      sNorm,
-      setH,
-      user.employee.weeklyHoliday ?? undefined
+      sessionLabel,
+      holidaysByYear,
+      weeklyHoliday: user.employee.weeklyHoliday ?? undefined,
+    });
+
+    const requestedDays = Object.values(requestedByYear).reduce(
+      (sum, n) => sum + Number(n || 0),
+      0
     );
+
     if (requestedDays <= 0)
       return NextResponse.json(
         { error: "ช่วงวันไม่ใช่วันทำการ" },
@@ -169,49 +234,7 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       );
 
-    // เช็คสิทธิ์จาก Employee ของปีนี้ (ชนิดที่ตัดสิทธิ์เท่านั้น)
-    const rights = await prisma.leaveRights.findFirst({
-      where: { employeeId: user.employee.id, year },
-    });
-
-    const entitled = (() => {
-      switch (kind as string) {
-        case "ANNUAL": {
-          const base = rights?.vacationLeave ?? rights?.annualLeave ?? 0;
-          const carry =
-            rights?.carryForwardAnnual && rights?.carryForwardAnnualExpiry
-              ? new Date(rights.carryForwardAnnualExpiry) > new Date()
-                ? Number(rights.carryForwardAnnual)
-                : 0
-              : 0;
-          return base + carry;
-        }
-        case "BUSINESS":
-          return rights?.businessLeave ?? 0;
-        case "SICK":
-          return rights?.sickLeave ?? 0;
-        case "BIRTHDAY":
-          return rights?.birthdayLeave ?? 0;
-        case "ORDAIN":
-          return rights?.ordainLeave ?? 0;
-        case "MATERNITY":
-          return rights?.maternityLeave ?? 0;
-        case "UNPAID":
-          return rights?.unpaidLeave ?? 0;
-        case "ANNUAL_HOLIDAY": {
-          const baseH = rights?.holidayLeave ?? 0;
-          const carryH =
-            rights?.carryForwardHoliday && rights?.carryForwardHolidayExpiry
-              ? new Date(rights.carryForwardHolidayExpiry) > new Date()
-                ? Number(rights.carryForwardHoliday)
-                : 0
-              : 0;
-          return baseH + carryH;
-        }
-        default:
-          return 0;
-      }
-    })();
+    // เช็คสิทธิ์แบบแยกตามปี (รองรับลาคร่อมปี)
     const isQuotaKind = [
       "ANNUAL",
       "BUSINESS",
@@ -222,49 +245,169 @@ export async function POST(req: NextRequest) {
       "UNPAID",
       "ANNUAL_HOLIDAY",
     ].includes(kind);
+
+    // สำหรับ ANNUAL/ANNUAL_HOLIDAY: ตรึงการกันสิทธิ์ไว้ตอนยื่นลา
+    const reservation: Record<string, { cf: number; current: number }> = {};
+
     if (isQuotaKind) {
-      const [A, P] = await Promise.all([
-        prisma.leave.aggregate({
-          _sum: { requestedDays: true },
+      const now = new Date();
+
+      for (const y of years) {
+        const reqY = Number(requestedByYear[y] ?? 0);
+        if (reqY <= 0) continue;
+
+        await ensureLeaveRightsForYear(user.employee.id, y);
+        const rights = await prisma.leaveRights.findUnique({
+          where: { employeeId_year: { employeeId: user.employee.id, year: y } },
+        });
+
+        const holidaysY = holidaysByYear[y] ?? new Set<string>();
+
+        // ดึงใบลาที่ทับปีนี้ (เฉพาะ kind เดียว) เพื่อคำนวณ used (รองรับลาคร่อมปี)
+        const leavesInYear = await prisma.leave.findMany({
           where: {
             userId: user.id,
             kind,
-            status: "APPROVED",
-            startDate: {
-              gte: new Date(`${year}-01-01`),
-              lt: new Date(`${year + 1}-01-01`),
-            },
+            status: { in: ["APPROVED", "PENDING"] },
+            AND: [
+              { startDate: { lte: yearEnd(y) } },
+              { endDate: { gte: yearStart(y) } },
+            ],
           },
-        }),
-        prisma.leave.aggregate({
-          _sum: { requestedDays: true },
-          where: {
-            userId: user.id,
-            kind,
-            status: "PENDING",
-            startDate: {
-              gte: new Date(`${year}-01-01`),
-              lt: new Date(`${year + 1}-01-01`),
-            },
+          select: {
+            startDate: true,
+            endDate: true,
+            session: true,
+            status: true,
           },
-        }),
-      ]);
-      const usedApproved = Number(A._sum.requestedDays ?? 0);
-      const usedPending = Number(P._sum.requestedDays ?? 0);
-      const remain = entitled - usedApproved - usedPending;
+          orderBy: { startDate: "asc" },
+        });
 
-      // 🔍 Debug log สำหรับตรวจสอบค่า
-      console.log(`[DEBUG] Leave Type: ${kind}`);
-      console.log(
-        `[DEBUG] Entitled: ${entitled}, Used: ${usedApproved}, Pending: ${usedPending}`
-      );
-      console.log(`[DEBUG] Remain: ${remain}, Requested: ${requestedDays}`);
+        // ✅ Annual/AnnualHoliday: balances are already decremented on APPROVED in LeaveRights.
+        // So we only need to reserve PENDING against the current balances.
+        if (kind === "ANNUAL" || kind === "ANNUAL_HOLIDAY") {
+          const cfTotal = Number(
+            kind === "ANNUAL"
+              ? rights?.carryForwardAnnual ?? 0
+              : rights?.carryForwardHoliday ?? 0
+          );
+          const cfExpiry =
+            kind === "ANNUAL"
+              ? rights?.carryForwardAnnualExpiry
+                ? new Date(rights.carryForwardAnnualExpiry)
+                : null
+              : rights?.carryForwardHolidayExpiry
+              ? new Date(rights.carryForwardHolidayExpiry)
+              : null;
+          const cfActiveNow = !!(cfTotal > 0 && cfExpiry && cfExpiry > now);
 
-      if (requestedDays > remain) {
-        return NextResponse.json(
-          { error: `สิทธิ์คงเหลือไม่พอ (เหลือ ${remain} วัน)` },
-          { status: 400 }
-        );
+          let cfRemain = cfActiveNow ? cfTotal : 0;
+          let currentRemain = Number(
+            kind === "ANNUAL"
+              ? rights?.vacationLeave ?? 0
+              : rights?.holidayLeave ?? 0
+          );
+
+          const segStartInYear =
+            segments.find((s) => s.year === y)?.start ?? start;
+
+          for (const l of leavesInYear) {
+            if (l.status !== "PENDING") continue;
+            const d = overlapDaysInYear({
+              leaveStart: new Date(l.startDate),
+              leaveEnd: new Date(l.endDate),
+              leaveSession: (l.session as HalfSession | null) ?? null,
+              year: y,
+              holidays: holidaysY,
+              weeklyHoliday: user.employee.weeklyHoliday,
+            });
+            if (d <= 0) continue;
+            const leaveDate = new Date(l.startDate);
+            let remain = d;
+            if (
+              cfRemain > 0 &&
+              cfExpiry &&
+              cfActiveNow &&
+              leaveDate < cfExpiry
+            ) {
+              const useCF = Math.min(cfRemain, remain);
+              cfRemain -= useCF;
+              remain -= useCF;
+            }
+            if (remain > 0) currentRemain -= remain;
+          }
+
+          const available =
+            Math.max(0, currentRemain) +
+            (cfActiveNow ? Math.max(0, cfRemain) : 0);
+          if (reqY > available) {
+            return NextResponse.json(
+              { error: `สิทธิ์คงเหลือไม่พอ (ปี ${y} เหลือ ${available} วัน)` },
+              { status: 400 }
+            );
+          }
+
+          // จองสิทธิ์สำหรับคำขอใหม่นี้ (ไม่เอาไปหักจริงจนกว่าจะ APPROVED)
+          // ใช้ตรรกะเดียวกับ validation: ยอดยกใช้ได้เฉพาะถ้ายังไม่หมดอายุ ณ ตอนยื่นลา และวันที่ลาอยู่ก่อนวันหมดอายุ
+          let remainNew = reqY;
+          let useCfNew = 0;
+          if (
+            cfRemain > 0 &&
+            cfExpiry &&
+            cfActiveNow &&
+            segStartInYear < cfExpiry
+          ) {
+            useCfNew = Math.min(cfRemain, remainNew);
+            remainNew -= useCfNew;
+          }
+          const useCurrentNew = remainNew;
+          reservation[String(y)] = {
+            cf: Number(useCfNew),
+            current: Number(useCurrentNew),
+          };
+        } else {
+          const entitled = (() => {
+            switch (kind as string) {
+              case "BUSINESS":
+                return Number(rights?.businessLeave ?? 0);
+              case "SICK":
+                return Number(rights?.sickLeave ?? 0);
+              case "BIRTHDAY":
+                return Number(rights?.birthdayLeave ?? 0);
+              case "ORDAIN":
+                return Number(rights?.ordainLeave ?? 0);
+              case "MATERNITY":
+                return Number(rights?.maternityLeave ?? 0);
+              case "UNPAID":
+                return Number(rights?.unpaidLeave ?? 0);
+              default:
+                return 0;
+            }
+          })();
+
+          let usedApproved = 0;
+          let usedPending = 0;
+          for (const l of leavesInYear) {
+            const d = overlapDaysInYear({
+              leaveStart: new Date(l.startDate),
+              leaveEnd: new Date(l.endDate),
+              leaveSession: (l.session as HalfSession | null) ?? null,
+              year: y,
+              holidays: holidaysY,
+              weeklyHoliday: user.employee.weeklyHoliday,
+            });
+            if (l.status === "APPROVED") usedApproved += d;
+            if (l.status === "PENDING") usedPending += d;
+          }
+
+          const remain = entitled - usedApproved - usedPending;
+          if (reqY > remain) {
+            return NextResponse.json(
+              { error: `สิทธิ์คงเหลือไม่พอ (ปี ${y} เหลือ ${remain} วัน)` },
+              { status: 400 }
+            );
+          }
+        }
       }
     }
 
@@ -281,6 +424,10 @@ export async function POST(req: NextRequest) {
         handoverTo,
         attachmentUrl,
         requestedDays,
+        reservation:
+          kind === "ANNUAL" || kind === "ANNUAL_HOLIDAY"
+            ? (reservation as any)
+            : undefined,
         status: "PENDING",
       },
     });
@@ -346,6 +493,7 @@ export async function PATCH(req: NextRequest) {
                 division: true,
                 unit: true,
                 levelP: true,
+                weeklyHoliday: true,
               },
             },
           },
@@ -353,94 +501,191 @@ export async function PATCH(req: NextRequest) {
       },
     });
 
+    // Prisma update above doesn't select scalar fields beyond defaults.
+    // We must explicitly fetch `reservation` so approval can follow the same allocation as PENDING.
+    const updatedLeaveReservation = await prisma.leave.findUnique({
+      where: { id: updatedLeave.id },
+      select: { reservation: true },
+    });
+    (updatedLeave as any).reservation = updatedLeaveReservation?.reservation;
+
     if (
       status === "APPROVED" &&
       ["ANNUAL", "ANNUAL_HOLIDAY"].includes(updatedLeave.kind)
     ) {
       if (updatedLeave.user.employee) {
         const employeeId = updatedLeave.user.employee.id;
-        const rights = await prisma.leaveRights.findFirst({
-          where: {
-            employeeId: employeeId, // ใช้ empNo ที่แปลงเป็น number
-            year: new Date(updatedLeave.startDate).getFullYear(),
-          },
-        });
+        const now = new Date();
 
-        let remain = Number(updatedLeave.requestedDays);
+        // ถ้ามี reservation ให้หักตามที่จองไว้ (ไม่คำนวณใหม่)
+        const res = (updatedLeave as any).reservation as
+          | Record<string, { cf?: number; current?: number }>
+          | null
+          | undefined;
+        if (res && typeof res === "object") {
+          const entries = Object.entries(res);
+          for (const [yearStr, alloc] of entries) {
+            const y = Number(yearStr);
+            if (!Number.isFinite(y)) continue;
+            let cf = Math.max(0, Number(alloc?.cf ?? 0));
+            let current = Math.max(0, Number(alloc?.current ?? 0));
 
-        console.log("=== PATCH LEAVE APPROVE ===");
-        console.log("updatedLeave.kind:", updatedLeave.kind);
-        console.log(
-          "employeeId:",
-          employeeId,
-          "year:",
-          new Date(updatedLeave.startDate).getFullYear()
-        );
-        // เพิ่ม log debug remain ก่อนเข้า block หักสิทธิ์ปีปัจจุบัน
-        console.log("[DEBUG] ก่อนเข้า if (remain > 0): remain =", remain);
-        console.log("rights:", rights);
-        // 1. หักจาก carry forward ก่อน
-        if (
-          updatedLeave.kind === "ANNUAL" &&
-          rights?.carryForwardAnnual &&
-          rights.carryForwardAnnualExpiry &&
-          new Date(rights.carryForwardAnnualExpiry) > new Date()
-        ) {
-          const useCF = Math.min(remain, Number(rights.carryForwardAnnual));
-          console.log(
-            "เข้า if หัก carryForwardAnnual",
-            "remain:",
-            remain,
-            "carryForwardAnnual:",
-            rights.carryForwardAnnual,
-            "useCF:",
-            useCF
-          );
-          if (useCF > 0) {
-            await prisma.leaveRights.update({
-              where: { id: rights.id },
-              data: { carryForwardAnnual: { decrement: useCF } },
+            if (cf === 0 && current === 0) continue;
+
+            await ensureLeaveRightsForYear(employeeId, y);
+            const rights = await prisma.leaveRights.findUnique({
+              where: { employeeId_year: { employeeId, year: y } },
             });
-            console.log("หัก carryForwardAnnual ไป", useCF);
-            remain -= useCF;
-          }
-        }
-        if (
-          updatedLeave.kind === "ANNUAL_HOLIDAY" &&
-          rights?.carryForwardHoliday &&
-          rights.carryForwardHolidayExpiry &&
-          new Date(rights.carryForwardHolidayExpiry) > new Date()
-        ) {
-          const useCF = Math.min(remain, Number(rights.carryForwardHoliday));
-          if (useCF > 0) {
-            await prisma.leaveRights.update({
-              where: { id: rights.id },
-              data: { carryForwardHoliday: { decrement: useCF } },
-            });
-            remain -= useCF;
-          }
-        }
+            if (!rights) continue;
 
-        // 2. ถ้า remain > 0 ให้ไปหักสิทธิ์ปีปัจจุบัน
-        if (remain > 0) {
-          if (updatedLeave.kind === "ANNUAL" && rights?.vacationLeave) {
-            const useCurrent = Math.min(remain, Number(rights.vacationLeave));
-            if (useCurrent > 0) {
-              await prisma.leaveRights.update({
-                where: { id: rights.id },
-                data: { vacationLeave: { decrement: useCurrent } },
-              });
-              remain -= useCurrent;
+            // Policy: once carry-forward is expired "today", it cannot be used even if the leave date was before expiry.
+            // If reservation tries to use CF but CF is expired now, shift that amount to current.
+            if (updatedLeave.kind === "ANNUAL") {
+              const expiry = rights.carryForwardAnnualExpiry
+                ? new Date(rights.carryForwardAnnualExpiry)
+                : null;
+              if (cf > 0 && (!expiry || expiry <= now)) {
+                current += cf;
+                cf = 0;
+              }
+            }
+            if (updatedLeave.kind === "ANNUAL_HOLIDAY") {
+              const expiry = rights.carryForwardHolidayExpiry
+                ? new Date(rights.carryForwardHolidayExpiry)
+                : null;
+              if (cf > 0 && (!expiry || expiry <= now)) {
+                current += cf;
+                cf = 0;
+              }
+            }
+
+            if (updatedLeave.kind === "ANNUAL") {
+              if (cf > 0) {
+                await prisma.leaveRights.updateMany({
+                  where: { employeeId, year: y },
+                  data: { carryForwardAnnual: { decrement: cf } },
+                });
+              }
+              if (current > 0) {
+                await prisma.leaveRights.updateMany({
+                  where: { employeeId, year: y },
+                  data: { vacationLeave: { decrement: current } },
+                });
+              }
+            }
+
+            if (updatedLeave.kind === "ANNUAL_HOLIDAY") {
+              if (cf > 0) {
+                await prisma.leaveRights.updateMany({
+                  where: { employeeId, year: y },
+                  data: { carryForwardHoliday: { decrement: cf } },
+                });
+              }
+              if (current > 0) {
+                await prisma.leaveRights.updateMany({
+                  where: { employeeId, year: y },
+                  data: { holidayLeave: { decrement: current } },
+                });
+              }
             }
           }
-          if (updatedLeave.kind === "ANNUAL_HOLIDAY" && rights?.holidayLeave) {
-            const useCurrent = Math.min(remain, Number(rights.holidayLeave));
-            if (useCurrent > 0) {
-              await prisma.leaveRights.update({
-                where: { id: rights.id },
-                data: { holidayLeave: { decrement: useCurrent } },
+
+          return NextResponse.json(updatedLeave);
+        }
+
+        const start = new Date(updatedLeave.startDate);
+        const end = new Date(updatedLeave.endDate);
+
+        const segs = splitRangeByYear(start, end);
+        const years = Array.from(new Set(segs.map((s) => s.year)));
+        const holidaysByYear: Record<number, Set<string>> = {};
+        await Promise.all(
+          years.map(async (y) => {
+            holidaysByYear[y] = await holidaySetForYear(y);
+          })
+        );
+
+        for (const seg of segs) {
+          const holidaysY = holidaysByYear[seg.year] ?? new Set<string>();
+          const segSession: HalfSession = seg.includesOriginalStart
+            ? (updatedLeave.session as HalfSession | null) ?? "FULL"
+            : "FULL";
+
+          const daysInYear = countBusinessDays(
+            seg.start,
+            seg.end,
+            segSession,
+            holidaysY,
+            updatedLeave.user.employee.weeklyHoliday ?? undefined
+          );
+          if (daysInYear <= 0) continue;
+
+          await ensureLeaveRightsForYear(employeeId, seg.year);
+          const rights = await prisma.leaveRights.findUnique({
+            where: { employeeId_year: { employeeId, year: seg.year } },
+          });
+          if (!rights) continue;
+
+          let remain = Number(daysInYear);
+
+          // 1) หักยอดยกก่อน โดยอิง "วันที่ลา" (segment.start) ไม่ใช่วันที่อนุมัติ
+          if (
+            updatedLeave.kind === "ANNUAL" &&
+            rights.carryForwardAnnual > 0 &&
+            rights.carryForwardAnnualExpiry &&
+            new Date(rights.carryForwardAnnualExpiry) > now &&
+            seg.start < new Date(rights.carryForwardAnnualExpiry)
+          ) {
+            const useCF = Math.min(remain, Number(rights.carryForwardAnnual));
+            if (useCF > 0) {
+              await prisma.leaveRights.updateMany({
+                where: { employeeId, year: seg.year },
+                data: { carryForwardAnnual: { decrement: useCF } },
               });
-              remain -= useCurrent;
+              remain -= useCF;
+            }
+          }
+          if (
+            updatedLeave.kind === "ANNUAL_HOLIDAY" &&
+            rights.carryForwardHoliday > 0 &&
+            rights.carryForwardHolidayExpiry &&
+            new Date(rights.carryForwardHolidayExpiry) > now &&
+            seg.start < new Date(rights.carryForwardHolidayExpiry)
+          ) {
+            const useCF = Math.min(remain, Number(rights.carryForwardHoliday));
+            if (useCF > 0) {
+              await prisma.leaveRights.updateMany({
+                where: { employeeId, year: seg.year },
+                data: { carryForwardHoliday: { decrement: useCF } },
+              });
+              remain -= useCF;
+            }
+          }
+
+          // 2) หักสิทธิ์ปีนั้น ๆ
+          if (remain > 0) {
+            if (updatedLeave.kind === "ANNUAL" && rights.vacationLeave > 0) {
+              const useCurrent = Math.min(remain, Number(rights.vacationLeave));
+              if (useCurrent > 0) {
+                await prisma.leaveRights.updateMany({
+                  where: { employeeId, year: seg.year },
+                  data: { vacationLeave: { decrement: useCurrent } },
+                });
+                remain -= useCurrent;
+              }
+            }
+            if (
+              updatedLeave.kind === "ANNUAL_HOLIDAY" &&
+              rights.holidayLeave > 0
+            ) {
+              const useCurrent = Math.min(remain, Number(rights.holidayLeave));
+              if (useCurrent > 0) {
+                await prisma.leaveRights.updateMany({
+                  where: { employeeId, year: seg.year },
+                  data: { holidayLeave: { decrement: useCurrent } },
+                });
+                remain -= useCurrent;
+              }
             }
           }
         }
