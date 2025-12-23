@@ -412,6 +412,14 @@ export default function ApprovalsPage() {
           รายการคำขอลา
         </h2>
         <div className="flex gap-2">
+          <a
+            className="rounded-lg px-4 py-2 bg-rose-600 text-white hover:bg-rose-700 border border-rose-700 dark:bg-rose-500/80 dark:text-white dark:hover:bg-rose-500"
+            href="/manual/Manager.pdf"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            คู่มือการใช้งาน
+          </a>
           <button
             className="rounded-lg px-4 py-2 bg-yellow-200 text-yellow-900 hover:bg-yellow-300 border border-yellow-300 dark:bg-yellow-900/30 dark:text-yellow-200 dark:hover:bg-yellow-800"
             onClick={() => {
