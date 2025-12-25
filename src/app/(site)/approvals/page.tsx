@@ -501,7 +501,7 @@ export default function ApprovalsPage() {
 
       {/* Bulk action bar */}
       <div className="mt-3 flex items-center justify-between">
-        <div className="text-sm text-slate-600 dark:text-slate-300">
+        <div className="text-sm text-slate-600 dark:text-slate-500">
           เลือกรายการ: {selectedIds.size}
         </div>
         <div className="flex gap-2">

@@ -17,6 +17,13 @@ function isoDateString(y: number, m: number, d: number) {
   return `${y}-${pad(m)}-${pad(d)}`;
 }
 
+function formatMonthTH(month: string) {
+  // month = "2025-12"
+  const [y, m] = month.split("-");
+  const year = (parseInt(y, 10) + 543).toString();
+  return `${m}/${year}`;
+}
+
 export default function LeaveCalendarModal({ open, onClose }: Props) {
   const now = new Date();
   const [month, setMonth] = React.useState(
@@ -90,17 +97,34 @@ export default function LeaveCalendarModal({ open, onClose }: Props) {
   const startWeekday = (first.getDay() + 6) % 7; // 0 = Monday
   const daysInMonth = last.getDate();
 
-  // build array of cells (leading blanks + days)
+  // build array of cells (leading blanks + days + outside days)
+  const prevMonthLastDay = new Date(year, m - 1, 0).getDate();
   const totalCells = Math.ceil((startWeekday + daysInMonth) / 7) * 7;
-  const cells: Array<{ iso?: string; day?: number }> = Array.from({
-    length: totalCells,
-  }).map((_, idx) => {
-    const dayIndex = idx - startWeekday + 1;
-    if (dayIndex >= 1 && dayIndex <= daysInMonth) {
-      return { iso: isoDateString(year, m, dayIndex), day: dayIndex };
-    }
-    return {};
-  });
+  const cells: Array<{ iso?: string; day: number; outside: boolean }> =
+    Array.from({
+      length: totalCells,
+    }).map((_, idx) => {
+      const dayIndex = idx - startWeekday + 1;
+      if (dayIndex >= 1 && dayIndex <= daysInMonth) {
+        return {
+          iso: isoDateString(year, m, dayIndex),
+          day: dayIndex,
+          outside: false,
+        };
+      }
+      // previous month filler
+      if (dayIndex < 1) {
+        return {
+          day: prevMonthLastDay + dayIndex,
+          outside: true,
+        };
+      }
+      // next month filler
+      return {
+        day: dayIndex - daysInMonth,
+        outside: true,
+      };
+    });
   const gotoPrev = () => {
     const d = new Date(year, m - 2, 1); // previous month
     setMonth(`${d.getFullYear()}-${pad(d.getMonth() + 1)}`);
@@ -134,7 +158,7 @@ export default function LeaveCalendarModal({ open, onClose }: Props) {
 
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mt-3 mb-4 gap-3">
           <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
-            ปฏิทินการลา ({month})
+            ปฏิทินการลา ({formatMonthTH(month)})
           </h2>
           <div className="flex items-center gap-2">
             <button
@@ -162,14 +186,14 @@ export default function LeaveCalendarModal({ open, onClose }: Props) {
         </div>
 
         {/* calendar header */}
-        <div className="grid grid-cols-7 gap-1 text-xs text-slate-100 mb-2">
+        <div className="grid grid-cols-7 gap-1 text-xs text-slate-900 dark:text-slate-100 mb-2">
           <div className="text-center font-medium">จ</div>
-          <div className="text-center font-medium">อ</div>
           <div className="text-center font-medium">อ</div>
           <div className="text-center font-medium">พ</div>
           <div className="text-center font-medium">พฤ</div>
           <div className="text-center font-medium">ศ</div>
           <div className="text-center font-medium">ส</div>
+          <div className="text-center font-medium">อา</div>
         </div>
 
         {/* calendar grid */}
@@ -178,19 +202,25 @@ export default function LeaveCalendarModal({ open, onClose }: Props) {
           onClick={() => setExpandedDay(null)}
         >
           {loading ? (
-            <div className="col-span-7 p-6 text-center text-slate-100">
+            <div className="col-span-7 p-6 text-center text-slate-700 dark:text-slate-100">
               กำลังโหลด...
             </div>
           ) : (
             cells.map((cell, i) => {
-              if (!cell.iso) {
+              if (cell.outside) {
                 return (
                   <div
-                    key={i}
-                    className="h-20 sm:h-28 border rounded bg-transparent"
-                  />
+                    key={`outside-${i}`}
+                    className="relative h-20 sm:h-28 border border-slate-300 rounded p-1.5 sm:p-2 bg-white dark:bg-slate-800/60"
+                  >
+                    <div className="text-[11px] sm:text-xs text-slate-400 dark:text-slate-500 opacity-70 px-1 py-0.5 rounded">
+                      {cell.day}
+                    </div>
+                  </div>
                 );
               }
+
+              if (!cell.iso) return null;
               const dayData = daysMap[cell.iso];
               const total = dayData ? dayData.people.length : 0;
               return (
@@ -199,10 +229,10 @@ export default function LeaveCalendarModal({ open, onClose }: Props) {
                   ref={(el) => {
                     if (cell.iso) cellRefs.current[cell.iso] = el;
                   }}
-                  className="relative h-20 sm:h-28 border rounded p-1.5 sm:p-2 bg-slate-50 dark:bg-slate-800 overflow-visible"
+                  className="relative h-20 sm:h-28 border border-slate-300 rounded p-1.5 sm:p-2 bg-white dark:bg-slate-800 overflow-visible"
                 >
                   <div className="flex items-start justify-between">
-                    <div className="text-[11px] sm:text-xs text-slate-100 bg-transparent px-1 py-0.5 rounded">
+                    <div className="text-[11px] sm:text-xs text-slate-900 dark:text-slate-100 bg-transparent px-1 py-0.5 rounded">
                       {cell.day}
                     </div>
                     {total > 0 && (

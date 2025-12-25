@@ -30,6 +30,31 @@ export default function DashboardPage() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [dotFill, setDotFill] = useState<string>("var(--foreground)");
+
+  useEffect(() => {
+    const update = () => {
+      try {
+        const v = getComputedStyle(document.documentElement).getPropertyValue('--foreground')?.trim();
+        setDotFill(v || "var(--foreground)");
+      } catch {
+        setDotFill("var(--foreground)");
+      }
+    };
+    update();
+    const mo = new MutationObserver(update);
+    mo.observe(document.documentElement, { attributes: true, attributeFilter: ['class', 'style'] });
+    const mql = window.matchMedia?.('(prefers-color-scheme: dark)');
+    if (mql) {
+      const listener = () => update();
+      mql.addEventListener ? mql.addEventListener('change', listener) : mql.addListener(listener);
+      return () => {
+        mo.disconnect();
+        mql.removeEventListener ? mql.removeEventListener('change', listener) : mql.removeListener(listener);
+      };
+    }
+    return () => mo.disconnect();
+  }, []);
 
   // Fetch data from API
   useEffect(() => {
@@ -101,11 +126,21 @@ export default function DashboardPage() {
           <div className="h-64">
             <ResponsiveContainer>
               <LineChart data={data.monthlyLeaves} margin={{ left:4, right:8, top:8, bottom:0 }}>
-                <CartesianGrid stroke="rgba(255,255,255,.08)" />
-                <XAxis dataKey="m" stroke="#a3adc2" />
-                <YAxis stroke="#a3adc2" />
-                <Tooltip />
-                <Line type="monotone" dataKey="avgDays" stroke="#08f7fe" strokeWidth={3} dot={{ r:3 }} />
+                <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" />
+                <XAxis dataKey="m" stroke="var(--muted)" tick={{ fill: 'var(--muted)' }} />
+                <YAxis stroke="var(--muted)" tick={{ fill: 'var(--muted)' }} />
+                <Tooltip 
+                  contentStyle={{ background: 'var(--panel)', border: '1px solid var(--border)', color: 'var(--text)' }}
+                  labelStyle={{ color: 'var(--muted)' }}
+                  itemStyle={{ color: 'var(--text)' }}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="avgDays"
+                  stroke="var(--cyan)"
+                  strokeWidth={3}
+                  dot={{ r:3, stroke: 'var(--panel)', strokeWidth: 2, fill: dotFill }}
+                />
               </LineChart>
             </ResponsiveContainer>
           </div>
@@ -117,13 +152,17 @@ export default function DashboardPage() {
           <div className="h-64">
             <ResponsiveContainer>
               <BarChart data={data.leaveTypes} margin={{ left:4, right:8, top:8, bottom:0 }}>
-                <CartesianGrid stroke="rgba(255,255,255,.08)" />
-                <XAxis dataKey="type" stroke="#a3adc2" />
-                <YAxis stroke="#a3adc2" />
-                <Tooltip />
+                <CartesianGrid stroke="var(--border)" />
+                <XAxis dataKey="type" stroke="var(--muted)" tick={{ fill: 'var(--muted)' }} />
+                <YAxis stroke="var(--muted)" tick={{ fill: 'var(--muted)' }} />
+                <Tooltip 
+                  contentStyle={{ background: 'var(--panel)', border: '1px solid var(--border)', color: 'var(--text)' }}
+                  labelStyle={{ color: 'var(--muted)' }}
+                  itemStyle={{ color: 'var(--text)' }}
+                />
                 <Bar dataKey="count">
                   {data.leaveTypes.map((_, i) => (
-                    <Cell key={i} fill={COLORS[i % COLORS.length]} />
+                    <Cell key={i} fill={COLORS[i % COLORS.length]} stroke="var(--panel)" />
                   ))}
                 </Bar>
               </BarChart>
@@ -149,11 +188,14 @@ export default function DashboardPage() {
                   cy="50%"
                 >
                   {data.statusDist.map((entry, i) => (
-                    <Cell key={i} fill={getStatusColor(entry.name)} />
+                    <Cell key={i} fill={getStatusColor(entry.name)} stroke="var(--panel)" />
                   ))}
                 </Pie>
-                <Tooltip />
-                <Legend />
+                <Tooltip 
+                  contentStyle={{ background: 'var(--panel)', border: '1px solid var(--border)', color: 'var(--text)' }}
+                  itemStyle={{ color: 'var(--text)' }}
+                />
+                <Legend wrapperStyle={{ color: 'var(--muted)' }} />
               </PieChart>
             </ResponsiveContainer>
           </div>

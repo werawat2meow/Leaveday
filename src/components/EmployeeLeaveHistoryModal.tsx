@@ -123,7 +123,7 @@ export default function EmployeeLeaveHistoryModal({
         {/* Filter by date range */}
         <div className="flex flex-col sm:flex-row gap-1 sm:gap-2 mb-3 sm:mb-4">
           <div>
-            <label className="block text-xs sm:text-sm mb-1 text-white/80">
+            <label className="block text-xs sm:text-sm mb-1 text-slate-700 dark:text-white/80">
               จากวันที่
             </label>
             <input
@@ -134,7 +134,7 @@ export default function EmployeeLeaveHistoryModal({
             />
           </div>
           <div>
-            <label className="block text-xs sm:text-sm mb-1 text-white/80">
+            <label className="block text-xs sm:text-sm mb-1 text-slate-700 dark:text-white/80">
               ถึงวันที่
             </label>
             <input
@@ -152,22 +152,22 @@ export default function EmployeeLeaveHistoryModal({
             <table className="w-full min-w-[800px] history-table text-xs sm:text-sm">
               <thead>
                 <tr className="sticky top-0 z-10 bg-slate-900/80">
-                  <th className="text-center px-3 py-2 text-xs sm:text-sm font-semibold whitespace-nowrap">
+                  <th className="text-center px-3 py-2 text-xs sm:text-sm font-semibold whitespace-nowrap border-b border-slate-200 dark:border-white/10">
                     ลำดับ
                   </th>
-                  <th className="text-center px-3 py-2 text-xs sm:text-sm font-semibold whitespace-nowrap">
+                  <th className="text-center px-3 py-2 text-xs sm:text-sm font-semibold whitespace-nowrap border-b border-slate-200 dark:border-white/10">
                     ชื่อผู้ลา
                   </th>
-                  <th className="text-center px-3 py-2 text-xs sm:text-sm font-semibold whitespace-nowrap">
+                  <th className="text-center px-3 py-2 text-xs sm:text-sm font-semibold whitespace-nowrap border-b border-slate-200 dark:border-white/10">
                     ประเภท
                   </th>
-                  <th className="text-center px-3 py-2 text-xs sm:text-sm font-semibold whitespace-nowrap">
+                  <th className="text-center px-3 py-2 text-xs sm:text-sm font-semibold whitespace-nowrap border-b border-slate-200 dark:border-white/10">
                     วันที่
                   </th>
-                  <th className="text-center px-3 py-2 text-xs sm:text-sm font-semibold whitespace-nowrap">
+                  <th className="text-center px-3 py-2 text-xs sm:text-sm font-semibold whitespace-nowrap border-b border-slate-200 dark:border-white/10">
                     สถานะ
                   </th>
-                  <th className="text-center px-3 py-2 text-xs sm:text-sm font-semibold whitespace-nowrap">
+                  <th className="text-center px-3 py-2 text-xs sm:text-sm font-semibold whitespace-nowrap border-b border-slate-200 dark:border-white/10">
                     ผู้อนุมัติ
                   </th>
                 </tr>
@@ -213,7 +213,7 @@ export default function EmployeeLeaveHistoryModal({
                     return (
                       <tr
                         key={idx}
-                        className="odd:bg-white/0 even:bg-white/5 hover:bg-white/10 transition-colors"
+                        className="border-t border-slate-200 dark:border-white/10 odd:bg-white/0 even:bg-white/5 hover:bg-white/10 transition-colors"
                       >
                         <td className="text-center px-3 py-2 text-xs sm:text-sm">
                           {idx + 1}

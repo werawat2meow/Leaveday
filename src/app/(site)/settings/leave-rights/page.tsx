@@ -225,7 +225,11 @@ export default function LeaveRightsPage() {
       </div>
 
       <div className="mt-5 flex justify-end gap-3">
-        <button type="button" className="btn-ghost" onClick={addRow}>
+        <button
+          type="button"
+          className="rounded-xl px-4 py-2 font-bold bg-green-50 text-green-700 border border-green-200 hover:bg-green-100 shadow-sm"
+          onClick={addRow}
+        >
           เพิ่มรายการ
         </button>
         <button type="button" className="btn-primary disabled:opacity-60" onClick={handleSave} disabled={saving}>

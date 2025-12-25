@@ -268,8 +268,8 @@ export default function HRConfirmRecheckPage() {
         </div>
         <div className="flex gap-2">
           <button
-            className="rounded-lg border border-slate-300 px-3 py-1 text-sm hover:bg-slate-50
-                       dark:border-white/10 dark:hover:bg-white/5"
+            className="rounded-lg border border-amber-300 px-3 py-1 text-sm text-amber-700 hover:bg-amber-50
+                       dark:border-amber-500/50 dark:text-amber-300 dark:hover:bg-amber-900/30"
             onClick={() => setShowConfirmed((v) => !v)}
           >
             {showConfirmed ? "ดูรายการรอยืนยัน" : "ดูรายการที่ยืนยันแล้ว"}
@@ -277,8 +277,8 @@ export default function HRConfirmRecheckPage() {
 
           {showConfirmed ? (
             <button
-              className="rounded-lg border border-amber-300 px-3 py-1 text-sm text-amber-700 hover:bg-amber-50
-                         disabled:opacity-50 dark:border-amber-500/50 dark:text-amber-300 dark:hover:bg-amber-900/30"
+              className="rounded-lg border border-rose-400 px-3 py-1 text-sm text-rose-700 font-bold hover:bg-rose-50
+                        disabled:opacity-50 dark:border-rose-500/50 dark:text-rose-300 dark:hover:bg-rose-900/30"
               onClick={() => undoConfirm(Array.from(selectedIds))}
               disabled={selectedIds.size === 0 || loading}
             >
@@ -286,7 +286,7 @@ export default function HRConfirmRecheckPage() {
             </button>
           ) : (
             <button
-              className="rounded-lg border border-emerald-300 px-3 py-1 text-sm text-emerald-700 hover:bg-emerald-50
+              className="rounded-lg border border-emerald-700 px-3 py-1 text-sm text-emerald-800 font-bold hover:bg-emerald-100
                          disabled:opacity-50 dark:border-emerald-500/50 dark:text-emerald-300 dark:hover:bg-emerald-900/30"
               onClick={() => confirmHR(Array.from(selectedIds))}
               disabled={selectedIds.size === 0 || loading}
@@ -379,12 +379,12 @@ export default function HRConfirmRecheckPage() {
                     <Td className="text-right pr-3">
                       {showConfirmed ? (
                         <button
-                          className="rounded-lg border border-amber-300 px-3 py-1 text-sm text-amber-700 hover:bg-amber-50
-                                     dark:border-amber-500/50 dark:text-amber-300 dark:hover:bg-amber-900/30"
-                          onClick={() => undoConfirm([r.id])}
-                        >
-                          ยกเลิก
-                        </button>
+                        className="rounded-lg border border-red-500 bg-red-500 px-3 py-1 text-sm text-white font-bold hover:bg-red-600
+                                  dark:border-rose-500/50 dark:bg-rose-900/30 dark:text-rose-500 dark:hover:bg-rose-900/50"
+                        onClick={() => undoConfirm([r.id])}
+                      >
+                        ยกเลิก
+                      </button>
                       ) : (
                         <button
                           className="rounded-lg border border-emerald-300 px-3 py-1 text-sm text-emerald-700 hover:bg-emerald-50

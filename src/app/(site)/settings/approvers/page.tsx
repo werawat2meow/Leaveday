@@ -282,7 +282,7 @@ function mapApproverToForm(a: any): Form {
         </h2>
         <button
           type="button"
-          className="neon-title cursor-pointer rounded-xl px-4 py-2 border border-slate-300 hover:bg-slate-50 dark:border-white/10 dark:hover:bg-white/5"
+          className="rounded-xl px-4 py-2 font-bold bg-yellow-50 text-yellow-900 border border-yellow-200 hover:bg-yellow-100 shadow-sm"
           onClick={() => setOpen(true)}
         >
           รายชื่อผู้มีสิทธิ์อนุมัติ
@@ -415,10 +415,17 @@ function mapApproverToForm(a: any): Form {
       </div>
 
       <div className="mt-5 flex justify-end gap-3">
-        <button className="btn-ghost" onClick={() => setForm(init)}>
+        <button
+          className="rounded-xl px-4 py-2 font-bold bg-red-50 text-red-700 border border-red-200 hover:bg-red-100 shadow-sm"
+          onClick={() => setForm(init)}
+        >
           ล้างฟอร์ม
         </button>
-        <button className="btn-primary" onClick={handleSave} disabled={saving}>
+        <button
+          className="rounded-xl px-4 py-2 font-bold bg-green-50 text-green-700 border border-green-200 hover:bg-green-100 shadow-sm"
+          onClick={handleSave}
+          disabled={saving}
+        >
           {saving ? "กำลังบันทึก..." : "บันทึก"}
         </button>
       </div>

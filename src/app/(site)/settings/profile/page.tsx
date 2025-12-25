@@ -495,12 +495,12 @@ export default function ProfileSettingsPage() {
             </div>
           )}
           <button
-            type="button"
-            className="neon-title rounded-xl px-4 py-2 border border-slate-300 hover:bg-slate-50 dark:border-white/10 dark:hover:bg-white/5 cursor-pointer"
-            onClick={() => setOpenEmpModal(true)}
-          >
-            รายชื่อพนักงาน
-          </button>
+          type="button"
+          onClick={() => setOpenEmpModal(true)}
+          className="rounded-xl px-4 py-2 font-bold bg-yellow-50 text-yellow-900 border border-yellow-200 hover:bg-yellow-100 shadow-sm"
+        >
+          รายชื่อพนักงาน
+        </button>
         </div>
       </div>
 
@@ -743,7 +743,7 @@ export default function ProfileSettingsPage() {
         <button
           type="button"
           onClick={onClearClick}
-          className="rounded-xl px-4 py-2 border border-white/10 hover:bg-white/5"
+          className="rounded-xl px-4 py-2 font-bold bg-red-50 text-red-700 border border-red-200 hover:bg-red-100 shadow-sm"
         >
           ล้างฟอร์ม
         </button>
