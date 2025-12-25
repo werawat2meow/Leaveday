@@ -929,7 +929,7 @@ export default function LeavePage() {
                       .map((r) => (
                         <tr
                           key={r.level}
-                          className="odd:bg-white/0 even:bg-white/5"
+                          className="odd:bg-gray-50 even:bg-white dark:odd:bg-white/5 dark:even:bg-white/0"
                         >
                           <td className="px-3 py-2">
                             <span translate="no">{`P${r.level.replace(
@@ -1560,9 +1560,9 @@ function EntBox({
       <div className="flex items-baseline gap-1 sm:gap-2">
         <span className="text-lg sm:text-2xl font-bold">{left}</span>
       </div>
-      <div className="mt-2 h-1.5 sm:h-2 w-full rounded bg-white/10">
+      <div className="mt-2 h-1.5 sm:h-2 w-full rounded bg-gray-100 dark:bg-white/10">
         <div
-          className="h-1.5 sm:h-2 rounded bg-[var(--cyan)]"
+          className="h-1.5 sm:h-2 rounded bg-cyan-500 dark:bg-[var(--cyan)] transition-all"
           style={{ width: `${pct}%` }}
           aria-label={`${pct}% used`}
         />

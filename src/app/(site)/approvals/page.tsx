@@ -992,27 +992,96 @@ function Select({
   onChange: (v: string) => void;
   options: string[];
 }) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const [menuWidth, setMenuWidth] = useState<number | undefined>(undefined);
+
+  useEffect(() => {
+    if (!triggerRef.current) return;
+    setMenuWidth(triggerRef.current.offsetWidth);
+  }, [triggerRef.current, value, options.length]);
+
+  useEffect(() => {
+    function onDoc(e: MouseEvent) {
+      if (!rootRef.current) return;
+      if (!rootRef.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("click", onDoc);
+    return () => document.removeEventListener("click", onDoc);
+  }, []);
+
   return (
-    <label className="block">
-      <span className="mb-1 block text-sm text-slate-700 dark:text-slate-300">
-        {label}
-      </span>
-      <select
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="w-full rounded-xl border p-3
-                   border-slate-300 bg-white text-slate-900
-                   focus:border-slate-400 focus:ring-2 focus:ring-slate-300/60
-                   dark:border-slate-700 dark:bg-slate-800/80 dark:text-slate-100 dark:focus:border-slate-500 dark:focus:ring-slate-700/40"
-      >
-        <option value="">ทั้งหมด</option>
-        {options.map((o) => (
-          <option key={o} value={o}>
-            {o}
-          </option>
-        ))}
-      </select>
-    </label>
+    <div className="relative" ref={rootRef}>
+      <label className="block">
+        <span className="mb-1 block text-sm text-slate-700 dark:text-slate-300">
+          {label}
+        </span>
+
+        <div>
+          <button
+            type="button"
+            ref={triggerRef}
+            onClick={() => setOpen((v) => !v)}
+            className="w-full rounded-xl border p-3 flex items-center justify-between
+                       border-slate-300 bg-white text-slate-900 text-left
+                       dark:border-slate-700 dark:bg-slate-800/80 dark:text-slate-100"
+            aria-haspopup="listbox"
+            aria-expanded={open}
+          >
+            <span className={value ? "" : "text-slate-400"}>
+              {value || "ทั้งหมด"}
+            </span>
+            <span className="ml-2 text-xs opacity-70">▾</span>
+          </button>
+
+          {open && (
+            <div
+              role="listbox"
+              aria-label={label}
+              className="absolute z-50 mt-2 rounded-xl border shadow-lg overflow-auto max-h-60 bg-white dark:bg-slate-800/90 dark:border-white/10"
+              style={{ width: menuWidth }}
+            >
+              <div className="py-1">
+                <div
+                  role="option"
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    onChange("");
+                    setOpen(false);
+                  }}
+                  className={`px-3 py-2 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700 ${
+                    value === ""
+                      ? "font-medium"
+                      : "text-slate-700 dark:text-slate-200"
+                  }`}
+                >
+                  ทั้งหมด
+                </div>
+                {options.map((o) => (
+                  <div
+                    key={o}
+                    role="option"
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      onChange(o);
+                      setOpen(false);
+                    }}
+                    className={`px-3 py-2 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700 ${
+                      value === o
+                        ? "font-medium"
+                        : "text-slate-700 dark:text-slate-200"
+                    }`}
+                  >
+                    {o}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </label>
+    </div>
   );
 }
 function Th({
