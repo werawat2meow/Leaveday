@@ -639,6 +639,10 @@ function List<T extends { id: number; name: string }>({
   onEdit?: (it: T) => void;
   onDelete?: (it: T) => void;
 }) {
+
+  const [expanded, setExpanded] = useState(false);
+  const MAX_VISIBLE = 3;
+
   if (loading) {
     return <div className="text-sm text-[var(--muted)]">กำลังโหลด...</div>;
   }
@@ -649,9 +653,12 @@ function List<T extends { id: number; name: string }>({
       </div>
     );
   }
+
+  const visibleItems = expanded ? items : items.slice(0, MAX_VISIBLE);
   return (
+    <>
     <ul className="divide-y divide-white/5 rounded-xl border border-white/10">
-      {items.map((it) => (
+      {visibleItems.map((it) => (
         <li
           key={it.id}
           className={`flex items-center justify-between p-3 ${
@@ -690,5 +697,18 @@ function List<T extends { id: number; name: string }>({
         </li>
       ))}
     </ul>
+    {items.length > MAX_VISIBLE && (
+        <div className="pt-2 text-sm text-[var(--muted)]">
+          <button
+            className="underline text-sm"
+            onClick={() => setExpanded((s) => !s)}
+          >
+            {expanded
+              ? "แสดงน้อยลง"
+              : `แสดงเพิ่มเติม (${items.length - MAX_VISIBLE})`}
+          </button>
+        </div>
+      )}
+      </>
   );
 }

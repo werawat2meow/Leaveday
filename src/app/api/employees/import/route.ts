@@ -3,6 +3,47 @@ import bcrypt from "bcryptjs";
 import { NextRequest, NextResponse } from "next/server";
 import * as XLSX from "xlsx";
 
+function toIntOrNull(v: any): number | null {
+  if (v === null || v === undefined || v === "") return null;
+  const n = Number(v);
+  if (!Number.isFinite(n)) return null;
+  return Math.trunc(n);
+}
+
+// Supports: Date | Excel serial number | string "d/m/yyyy" (also Buddhist year)
+function toDateOrNull(v: any): Date | null {
+  if (v === null || v === undefined || v === "") return null;
+
+  if (v instanceof Date && !Number.isNaN(v.getTime())) return v;
+
+  // Excel serial date (day 0 = 1899-12-30)
+  if (typeof v === "number" && Number.isFinite(v)) {
+    const epoch = Date.UTC(1899, 11, 30);
+    const d = new Date(epoch + v * 24 * 60 * 60 * 1000);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+
+  const s = String(v).trim();
+
+  // Try d/m/yyyy (including Buddhist year)
+  const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (m) {
+    const day = Number(m[1]);
+    const month = Number(m[2]);
+    let year = Number(m[3]);
+    if (year > 2400) year -= 543; // Buddhist Era -> AD
+    const d = new Date(year, month - 1, day);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+
+  const d = new Date(s);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function anniversaryInYear(startDate: Date, year: number): Date {
+  return new Date(year, startDate.getMonth(), startDate.getDate());
+}
+
 export async function POST(req: NextRequest) {
   try {
     const formData = await req.formData();
@@ -15,10 +56,10 @@ export async function POST(req: NextRequest) {
     // อ่านไฟล์ Excel
     const bytes = await file.arrayBuffer();
     const buffer = Buffer.from(bytes);
-    const workbook = XLSX.read(buffer, { type: "buffer" });
+    const workbook = XLSX.read(buffer, { type: "buffer", cellDates: true });
     const sheetName = workbook.SheetNames[0];
     const worksheet = workbook.Sheets[sheetName];
-    const jsonData = XLSX.utils.sheet_to_json(worksheet);
+    const jsonData = XLSX.utils.sheet_to_json(worksheet, { defval: null });
 
     if (!jsonData || jsonData.length === 0) {
       return NextResponse.json(
@@ -242,6 +283,8 @@ export async function POST(req: NextRequest) {
             normalizedLevelP = `P${normalizedLevelP}`;
           }
 
+          const startDate = toDateOrNull(row.startDate);
+
           // 3. สร้าง Employee พร้อม *_Id และ normalized levelP
           const created = await tx.employee.create({
             data: {
@@ -261,19 +304,21 @@ export async function POST(req: NextRequest) {
               unitId: unitId ?? undefined,
               levelP: normalizedLevelP || "",
               lineId: row.lineId || "",
-              startDate: row.startDate ? new Date(row.startDate) : null,
+              startDate,
               weeklyHoliday: row.weeklyHoliday || "",
               photoUrl: row.photoUrl || "",
               userId: user.id,
             },
           });
 
-          // create leaveRights for the employee: prefer explicit row values, else template, else zeros
+          // create leaveRights for the employee: prefer template, else explicit, else zeros
           const lrTemplate = normalizedLevelP
             ? await tx.leaveRightsTemplate.findFirst({
                 where: { prefix: normalizedLevelP },
               })
             : null;
+
+          const currentYear = new Date().getFullYear();
 
           const hasExplicit =
             typeof row.annualHolidays !== "undefined" ||
@@ -285,41 +330,52 @@ export async function POST(req: NextRequest) {
             typeof row.unpaidDays !== "undefined" ||
             typeof row.birthdayDays !== "undefined";
 
-          if (hasExplicit) {
+          // ---- NEW: carry forward from Excel (optional) -> goes into LeaveRights table ----
+          const hasCfAnnual = typeof row.carryForwardAnnual !== "undefined";
+          const hasCfAnnualExpiry = typeof row.carryForwardAnnualExpiry !== "undefined";
+          const hasCfHoliday = typeof row.carryForwardHoliday !== "undefined";
+          const hasCfHolidayExpiry = typeof row.carryForwardHolidayExpiry !== "undefined";
+
+          const cfAnnual = hasCfAnnual ? (toIntOrNull(row.carryForwardAnnual) ?? 0) : 0;
+          const cfHoliday = hasCfHoliday ? (toIntOrNull(row.carryForwardHoliday) ?? 0) : 0;
+
+          const cfAnnualExpiry =
+            (hasCfAnnualExpiry ? toDateOrNull(row.carryForwardAnnualExpiry) : null) ??
+            (cfAnnual > 0 && startDate ? anniversaryInYear(startDate, currentYear) : null);
+
+          const cfHolidayExpiry =
+            (hasCfHolidayExpiry ? toDateOrNull(row.carryForwardHolidayExpiry) : null) ??
+            (cfHoliday > 0 ? new Date(currentYear, 8, 30) : null); // 30/09
+
+          const carryCreate = {
+            carryForwardAnnual: cfAnnual,
+            carryForwardAnnualExpiry: cfAnnualExpiry,
+            carryForwardHoliday: cfHoliday,
+            carryForwardHolidayExpiry: cfHolidayExpiry,
+          };
+
+          // ถ้า import ซ้ำ จะให้ปรับ carry forward ได้ด้วย
+          const carryUpdate = {
+            carryForwardAnnual: cfAnnual,
+            carryForwardAnnualExpiry: cfAnnualExpiry,
+            carryForwardHoliday: cfHoliday,
+            carryForwardHolidayExpiry: cfHolidayExpiry,
+          };
+          // ---- end carry forward ----
+
+          // Prefer template when available (match manual add behavior)
+          if (lrTemplate) {
             await tx.leaveRights.upsert({
               where: {
                 employeeId_year: {
                   employeeId: created.id,
-                  year: new Date().getFullYear(),
+                  year: currentYear,
                 },
               },
-              update: {},
+              update: carryUpdate,
               create: {
                 employeeId: created.id,
-                year: new Date().getFullYear(),
-                annualLeave: Number(row.annualHolidays) || 0,
-                holidayLeave: 0,
-                vacationLeave: Number(row.vacationDays) || 0,
-                businessLeave: Number(row.businessDays) || 0,
-                sickLeave: Number(row.sickDays) || 0,
-                ordainLeave: Number(row.ordainDays) || 0,
-                maternityLeave: Number(row.maternityDays) || 0,
-                unpaidLeave: Number(row.unpaidDays) || 0,
-                birthdayLeave: Number(row.birthdayDays) || 0,
-              },
-            });
-          } else if (lrTemplate) {
-            await tx.leaveRights.upsert({
-              where: {
-                employeeId_year: {
-                  employeeId: created.id,
-                  year: new Date().getFullYear(),
-                },
-              },
-              update: {},
-              create: {
-                employeeId: created.id,
-                year: new Date().getFullYear(),
+                year: currentYear,
                 annualLeave: lrTemplate.annualLeaveDays,
                 holidayLeave: lrTemplate.holidayLeaveDays,
                 vacationLeave: lrTemplate.vacationLeaveDays,
@@ -329,6 +385,31 @@ export async function POST(req: NextRequest) {
                 maternityLeave: lrTemplate.maternityLeaveDays,
                 unpaidLeave: lrTemplate.unpaidLeaveDays,
                 birthdayLeave: lrTemplate.birthdayLeaveDays,
+                ...carryCreate,
+              },
+            });
+          } else if (hasExplicit) {
+            await tx.leaveRights.upsert({
+              where: {
+                employeeId_year: {
+                  employeeId: created.id,
+                  year: currentYear,
+                },
+              },
+              update: carryUpdate,
+              create: {
+                employeeId: created.id,
+                year: currentYear,
+                annualLeave: Number(row.annualHolidays) || 0,
+                holidayLeave: 0,
+                vacationLeave: Number(row.vacationDays) || 0,
+                businessLeave: Number(row.businessDays) || 0,
+                sickLeave: Number(row.sickDays) || 0,
+                ordainLeave: Number(row.ordainDays) || 0,
+                maternityLeave: Number(row.maternityDays) || 0,
+                unpaidLeave: Number(row.unpaidDays) || 0,
+                birthdayLeave: Number(row.birthdayDays) || 0,
+                ...carryCreate,
               },
             });
           } else {
@@ -336,13 +417,13 @@ export async function POST(req: NextRequest) {
               where: {
                 employeeId_year: {
                   employeeId: created.id,
-                  year: new Date().getFullYear(),
+                  year: currentYear,
                 },
               },
-              update: {},
+              update: carryUpdate,
               create: {
                 employeeId: created.id,
-                year: new Date().getFullYear(),
+                year: currentYear,
                 annualLeave: 0,
                 holidayLeave: 0,
                 vacationLeave: 0,
@@ -352,6 +433,7 @@ export async function POST(req: NextRequest) {
                 maternityLeave: 0,
                 unpaidLeave: 0,
                 birthdayLeave: 0,
+                ...carryCreate,
               },
             });
           }

@@ -174,6 +174,8 @@ export default function LeavePage() {
   const router = useRouter();
   const [openHistory, setOpenHistory] = useState(false);
   const [history, setHistory] = useState<LeaveHistoryItem[]>([]);
+  const [editingLeaveId, setEditingLeaveId] = useState<number | null>(null);
+  const [loadingEditingLeave, setLoadingEditingLeave] = useState(false);
 
   // ...existing code...
   // กรองประเภทการลาให้เหมาะสมกับเพศและสิทธิ
@@ -226,6 +228,7 @@ export default function LeavePage() {
             json.data.map((l: any, idx: number) => {
               console.log(`📋 Item ${idx}:`, l); // เพิ่ม debug
               return {
+                id: l.id,
                 no: idx + 1,
                 type: l.kind,
                 range: `${new Date(l.startDate).toLocaleDateString(
@@ -240,6 +243,8 @@ export default function LeavePage() {
                     ? "approved"
                     : l.status === "REJECTED"
                     ? "rejected"
+                    : l.status === "CANCELLED"
+                    ? "cancelled"
                     : "pending",
                 days: l.requestedDays,
               };
@@ -254,6 +259,69 @@ export default function LeavePage() {
       }
     })();
   }, [openHistory]);
+
+  async function fetchLeaveDetailForEdit(leaveId: number) {
+    setLoadingEditingLeave(true);
+    try {
+      const res = await fetch(`/api/leaves/${leaveId}`, {
+        credentials: "include",
+        cache: "no-store",
+      });
+      const json = await res.json();
+      if (!res.ok || !json?.ok) {
+        throw new Error(
+          json?.error || `โหลดข้อมูลใบลาไม่สำเร็จ (${res.status})`
+        );
+      }
+
+      const l = json.data;
+      if (!l) throw new Error("ไม่พบข้อมูลใบลา");
+      if (l.status !== "PENDING") {
+        throw new Error("แก้ไขได้เฉพาะรายการที่เป็น PENDING เท่านั้น");
+      }
+
+      setEditingLeaveId(l.id);
+      setLeave((s) => ({
+        ...s,
+        leaveType: l.kind,
+        fromDate: (l.startDate || "").slice(0, 10),
+        toDate: (l.endDate || "").slice(0, 10),
+        session: l.sessionLabel || s.session,
+        reason: l.reason ?? "",
+        contact: l.contact ?? "",
+        handoverTo: l.handoverTo ?? "",
+        approverId: l.approverId ?? s.approverId,
+      }));
+    } finally {
+      setLoadingEditingLeave(false);
+    }
+  }
+
+  async function cancelPendingLeaveForAudit() {
+    if (typeof editingLeaveId !== "number") return;
+    setSubmitting(true);
+    try {
+      const res = await fetch(`/api/leaves/${editingLeaveId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "CANCELLED" }),
+      });
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json?.ok) {
+        throw new Error(json?.error || `ยกเลิกคำขอไม่สำเร็จ (${res.status})`);
+      }
+
+      alert("ยกเลิกคำขอเรียบร้อย");
+      setEditingLeaveId(null);
+      // ปล่อยให้ผู้ใช้กดเปิดประวัติอีกครั้งเพื่อดูสถานะล่าสุด
+
+      window.location.reload();
+    } catch (e: any) {
+      alert(e?.message || "ยกเลิกคำขอไม่สำเร็จ");
+    } finally {
+      setSubmitting(false);
+    }
+  }
 
   const [emp, setEmp] = useState<EmployeeForm>({
     Nametitle: "นาย",
@@ -279,6 +347,8 @@ export default function LeavePage() {
     if (leave.session?.includes("Half")) return Math.max(diff - 1 + 0.5, 0.5);
     return diff;
   }, [leave.fromDate, leave.toDate, leave.session]);
+
+  const isEditingMode = typeof editingLeaveId === "number";
 
   function onChangeEmp<K extends keyof EmployeeForm>(k: K, v: EmployeeForm[K]) {
     setEmp((s) => ({ ...s, [k]: v }));
@@ -339,9 +409,12 @@ export default function LeavePage() {
 
     try {
       setSubmitting(true);
-      const attachmentUrl = await uploadIfAny(leave.attachment ?? null);
+      // ถ้าแก้ไขแล้วไม่ได้เลือกไฟล์ใหม่ จะไม่ส่ง attachmentUrl ไปทับของเดิม
+      const attachmentUrl = leave.attachment
+        ? await uploadIfAny(leave.attachment ?? null)
+        : null;
 
-      const payload = {
+      const payload: any = {
         kind: leave.leaveType, // "ANNUAL" | "SICK" | ...
         startDate: leave.fromDate,
         endDate: leave.toDate,
@@ -349,12 +422,16 @@ export default function LeavePage() {
         reason: leave.reason ?? "",
         contact: leave.contact ?? "",
         handoverTo: leave.handoverTo ?? "",
-        attachmentUrl,
+        ...(attachmentUrl ? { attachmentUrl } : {}),
         approverId: leave.approverId,
       };
 
-      const res = await fetch("/api/leaves", {
-        method: "POST",
+      const isEditing = typeof editingLeaveId === "number";
+      const url = isEditing ? `/api/leaves/${editingLeaveId}` : "/api/leaves";
+      const method = isEditing ? "PATCH" : "POST";
+
+      const res = await fetch(url, {
+        method,
         headers: { "Content-Type": "application/json" },
         credentials: "include",
         body: JSON.stringify(payload),
@@ -363,9 +440,10 @@ export default function LeavePage() {
       if (!res.ok || !json?.ok)
         throw new Error(json?.error || "ส่งคำขอลาไม่สำเร็จ");
 
-      alert("ส่งคำขอลาสำเร็จ");
+      alert(isEditing ? "อัปเดตคำขอลาสำเร็จ" : "ส่งคำขอลาสำเร็จ");
       await fetchLeaveUsed(); // อัพเดทสิทธิวันลาแบบทันที
       setLeave({ session: "Full Day" }); // เคลียร์ข้อมูลฟอร์มลา
+      setEditingLeaveId(null);
       router.push("/dashboard");
     } catch (e: any) {
       alert(e?.message || "เกิดข้อผิดพลาด");
@@ -873,7 +951,7 @@ export default function LeavePage() {
               <button
                 type="button"
                 onClick={() => router.back()}
-                className="rounded-xl px-4 py-2 border border-white/10 hover:bg-white/5 text-sm sm:text-base order-2 sm:order-1"
+                className="rounded-xl px-4 py-2 bg-amber-500 text-[#001418] shadow-[0_10px_28px_rgba(250,204,21,0.18)] hover:bg-amber-400 focus:outline-none focus:ring-2 focus:ring-amber-300/60 text-sm sm:text-base order-2 sm:order-1"
               >
                 ยกเลิก
               </button>
@@ -882,8 +960,23 @@ export default function LeavePage() {
                 disabled={submitting || !leave.leaveType}
                 className="rounded-xl px-4 sm:px-5 py-2 font-semibold bg-[var(--cyan)] text-[#001418] shadow-[0_10px_28px_var(--cyan-soft)] disabled:opacity-50 text-sm sm:text-base order-1 sm:order-2 whitespace-nowrap"
               >
-                {submitting ? "กำลังส่ง..." : "ส่งคำขอลา"}
+                {submitting
+                  ? "กำลังส่ง..."
+                  : isEditingMode
+                  ? "อัปเดตคำขอลา"
+                  : "ส่งคำขอลา"}
               </button>
+
+              {isEditingMode ? (
+                <button
+                  type="button"
+                  disabled={submitting}
+                  onClick={cancelPendingLeaveForAudit}
+                  className="rounded-xl px-4 py-2 bg-rose-600 text-white hover:bg-rose-500 shadow-[0_10px_28px_rgba(244,63,94,0.35)] focus:outline-none focus:ring-2 focus:ring-rose-400/60 text-sm sm:text-base order-3"
+                >
+                  ยกเลิกคำขอลา
+                </button>
+              ) : null}
             </div>
           </form>
         </section>
@@ -1404,6 +1497,11 @@ export default function LeavePage() {
         open={openHistory}
         onClose={() => setOpenHistory(false)}
         items={history}
+        onSelectPending={async (item) => {
+          if (!item?.id) return;
+          await fetchLeaveDetailForEdit(item.id);
+          setOpenHistory(false);
+        }}
       />
     </main>
   );

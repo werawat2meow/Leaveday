@@ -3,11 +3,24 @@
 @tailwind utilities;
 
 
-@media (prefers-color-scheme: dark) {
+/* @media (prefers-color-scheme: dark) {
   :root {
     --background: #0a0a0a;
     --foreground: #ededed;
   }
+} */
+:root {
+  --bg:#0e0f12;
+  --panel:#17181d;
+  --input:#212228;
+  --text:#e8f0ff;
+  --muted:#a3adc2;
+  --border: rgba(255,255,255,.06);
+  --cyan:#08f7fe;
+  --cyan-soft: rgba(8, 247, 254, .35);
+
+  --background: var(--bg);
+  --foreground: var(--text);
 }
 
 body {
@@ -57,23 +70,8 @@ body {
   }
 }
 
-:root {
-  --bg:#0e0f12;
-  --panel:#17181d;
-  --input:#212228;
-  --text:#e8f0ff;
-  --muted:#a3adc2;
-  --border: rgba(255,255,255,.06);
-  --cyan:#08f7fe;
-  --cyan-soft: rgba(8, 247, 254, .35);
-}
-
-:root {
-  --background: var(--bg);
-  --foreground: var(--text);
-}
-
 /* Light theme */
+html.theme-light,
 .theme-light {
   --bg:#f7f8fb;
   --panel:#ffffff;
@@ -90,6 +88,7 @@ body {
 }
 
 /* Dark theme (เผื่อสลับ class) */
+html.theme-dark,
 .theme-dark {
   --bg:#0e0f12;
   --panel:#17181d;
@@ -102,14 +101,6 @@ body {
   --cyan-soft: rgba(8, 247, 254, .35);
   --background: var(--bg);
   --foreground: var(--text);
-}
-body{
-  background:
-    radial-gradient(40% 30% at 20% 10%, rgba(8,247,254,.08), transparent 60%),
-    radial-gradient(30% 30% at 80% 20%, rgba(8,247,254,.05), transparent 70%),
-    radial-gradient(60% 60% at 50% 70%, rgba(0,0,0,.6), transparent 70%),
-    var(--background);
-  color: var(--foreground);
 }
 .neon-card{
   background: var(--panel);
@@ -157,18 +148,29 @@ body { top: 0 !important; position: static !important; }
 /* ซ่อน gadget/โลโก้ (เราใช้ปุ่มของเราเอง) */
 .goog-logo-link, .goog-te-gadget span, .goog-te-gadget-icon { display: none !important; }
 #google_translate_element { display: none !important; }
+@layer base {
+  html { color-scheme: light dark; }
+
+  html.theme-light,
+  .theme-light { color-scheme: light; }
+
+  html.theme-dark,
+  .theme-dark { color-scheme: dark; }
+}
 
 .history-table {
   table-layout: fixed;           /* คอลัมน์กว้างคงที่ อ่านง่าย */
   border-collapse: separate;
   border-spacing: 0;
   font-size: 13px;
+  color: var(--foreground);
 }
 .history-table th,
 .history-table td {
   padding: 10px 12px;
   vertical-align: middle;
   border-right: 1px solid var(--border);  /* แก้จาก rgba(255,255,255,.10) */
+  color: inherit;
 }
 .history-table th:last-child,
 .history-table td:last-child {

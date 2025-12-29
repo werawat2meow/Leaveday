@@ -2,6 +2,7 @@
 import { useEffect } from "react";
 
 export type LeaveHistoryItem = {
+  id?: number;
   no: number;
   type: string;
   range: string; // ช่วงวันที่ลา (เช่น 11-12/09/68)
@@ -9,7 +10,7 @@ export type LeaveHistoryItem = {
   to: string;
   approverComment: string;
   approver: string;
-  status: "approved" | "rejected" | "pending";
+  status: "approved" | "rejected" | "pending" | "cancelled";
   days?: number;
 };
 
@@ -17,10 +18,12 @@ export default function LeaveHistoryModal({
   open,
   onClose,
   items,
+  onSelectPending,
 }: {
   open: boolean;
   onClose: () => void;
   items: LeaveHistoryItem[];
+  onSelectPending?: (item: LeaveHistoryItem) => void;
 }) {
   // Debug logging
   useEffect(() => {
@@ -81,7 +84,7 @@ export default function LeaveHistoryModal({
                   <col style={{ width: 88 }} />
                   <col />
                   <col style={{ width: 160 }} />
-                  <col style={{ width: 120 }} />
+                  <col style={{ width: 160 }} />
                 </colgroup>
 
                 <thead>
@@ -111,31 +114,75 @@ export default function LeaveHistoryModal({
                 </thead>
 
                 <tbody>
-                  {items.map((r) => (
-                    <tr key={r.no} className="odd:bg-white/0 even:bg-white/5">
-                      <td className="px-3 py-2 text-center whitespace-nowrap">
-                        {r.no}
-                      </td>
-                      <td className="px-3 py-2 text-center whitespace-nowrap">
-                        {r.type || "-"}
-                      </td>
-                      <td className="px-3 py-2 text-center tabular-nums whitespace-nowrap">
-                        {r.range || "-"}
-                      </td>
-                      <td className="px-3 py-2 text-center tabular-nums whitespace-nowrap">
-                        {r.days ?? "-"}
-                      </td>
-                      <td className="px-3 py-2 text-center">
-                        {r.approverComment || "-"}
-                      </td>
-                      <td className="px-3 py-2 text-center whitespace-nowrap">
-                        {r.approver || "-"}
-                      </td>
-                      <td className="px-3 py-2 text-center whitespace-nowrap">
-                        <StatusPill status={r.status} />
-                      </td>
-                    </tr>
-                  ))}
+                  {items.map((r) => {
+                    const selectable = r.status === "pending";
+                    return (
+                      <tr
+                        key={r.id ?? r.no}
+                        className={`odd:bg-white/0 even:bg-white/5 ${
+                          selectable
+                            ? "cursor-pointer hover:bg-white/10"
+                            : "opacity-70"
+                        }`}
+                        onClick={() => {
+                          if (!selectable) return;
+                          onSelectPending?.(r);
+                        }}
+                        tabIndex={selectable ? 0 : -1}
+                        onKeyDown={(e) => {
+                          if (!selectable) return;
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            onSelectPending?.(r);
+                          }
+                        }}
+                        aria-disabled={!selectable}
+                      >
+                        <td className="px-3 py-2 text-center whitespace-nowrap">
+                          {r.no}
+                        </td>
+                        <td className="px-3 py-2 text-center whitespace-nowrap">
+                          {r.type || "-"}
+                        </td>
+                        <td className="px-3 py-2 text-center tabular-nums whitespace-nowrap">
+                          {r.range || "-"}
+                        </td>
+                        <td className="px-3 py-2 text-center tabular-nums whitespace-nowrap">
+                          {r.days ?? "-"}
+                        </td>
+                        <td className="px-3 py-2 text-center">
+                          {r.approverComment || "-"}
+                        </td>
+                        <td className="px-3 py-2 text-center whitespace-nowrap">
+                          {r.approver || "-"}
+                        </td>
+                        <td className="px-3 py-2 text-center whitespace-nowrap">
+                          <div className="inline-flex items-center justify-center gap-2">
+                            <StatusPill status={r.status} />
+                            {/* ปุ่ม "เลือก" สำหรับ pending เพื่อให้ผู้ใช้เห็นชัด */}
+                            {selectable && (
+                              <button
+                                type="button"
+                                className="rounded-lg px-3 py-1 text-xs font-extrabold
+                                bg-rose-600 text-white shadow-[0_10px_28px_rgba(244,63,94,0.35)]
+                                hover:bg-rose-500 hover:shadow-[0_14px_36px_rgba(244,63,94,0.45)]
+                                focus:outline-none focus:ring-2 focus:ring-rose-400/60active:translate-y-[1px]
+                                transition
+                                "
+                                onClick={(e) => {
+                                  e.stopPropagation(); //กันยิงซ้ำจากแถว
+                                  onSelectPending?.(r);
+                                }}
+                                aria-label="เลือกใบลานี้เพื่อแก้ไข/ยกเลิก"
+                              >
+                                เลือก
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -143,7 +190,7 @@ export default function LeaveHistoryModal({
         )}
 
         <div className="mt-3 text-xs text-[var(--muted)]">
-          * ข้อมูลดึงจากฐานข้อมูลจริง • รวม {items.length} รายการ
+          * เลือกได้เฉพาะรายการที่เป็น <b>รออนุมัติ</b> • รวม {items.length} รายการ
         </div>
       </div>
     </div>
@@ -153,7 +200,7 @@ export default function LeaveHistoryModal({
 function StatusPill({
   status,
 }: {
-  status: "approved" | "rejected" | "pending";
+  status: "approved" | "rejected" | "pending" | "cancelled";
 }) {
   const config = {
     approved: {
@@ -168,9 +215,15 @@ function StatusPill({
       label: "รออนุมัติ",
       className: "bg-amber-500/20 text-amber-400 ring-amber-500/30",
     },
+    cancelled: {
+      label: "ยกเลิก",
+      className: "bg-slate-500/20 text-slate-300 ring-slate-500/30",
+    },
   };
 
-  const { label, className } = config[status];
+  const { label, className } =
+    (config as Record<string, { label: string; className: string }>)[status] ||
+    config.pending;
 
   return (
     <span
