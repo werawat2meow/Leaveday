@@ -79,15 +79,22 @@ export async function POST(req: NextRequest) {
       const row = jsonData[i] as any;
       const rowNumber = i + 2; // Excel row เริ่มต้นที่ 2 (หลัง header)
 
+      // normalize fields -> cast to string to match Prisma schema types
+      const norm = (v: any) =>
+        v === null || v === undefined ? "" : String(v).trim();
+      const empNo = norm(row.empNo);
+      const idCard = norm(row.idCard);
+      const email = norm(row.email);
+      const firstName = norm(row.firstName);
+      const lastName = norm(row.lastName);
+      const prefix = norm(row.prefix);
+      const lineId = norm(row.lineId);
+      const weeklyHoliday = norm(row.weeklyHoliday);
+      const photoUrl = norm(row.photoUrl);
+
       try {
         // ตรวจสอบข้อมูลที่จำเป็น
-        if (
-          !row.empNo ||
-          !row.firstName ||
-          !row.lastName ||
-          !row.email ||
-          !row.idCard
-        ) {
+        if (!empNo || !firstName || !lastName || !email || !idCard) {
           results.failed++;
           results.errors.push(
             `แถว ${rowNumber}: ข้อมูลไม่ครบถ้วน (empNo, firstName, lastName, email, idCard จำเป็น)`
@@ -96,19 +103,11 @@ export async function POST(req: NextRequest) {
         }
 
         // ตรวจสอบข้อมูลซ้ำ
-        const existingUser = await prisma.user.findFirst({
-          where: {
-            email: row.email, // ✅ เช็ค email อย่างเดียว
-          },
-        });
+        const existingUser = await prisma.user.findFirst({ where: { email } });
 
         const existingEmployee = await prisma.employee.findFirst({
           where: {
-            OR: [
-              { empNo: row.empNo },
-              { idCard: String(row.idCard) }, // ✅ แปลงเป็น String
-              { email: row.email },
-            ],
+            OR: [{ empNo }, { idCard }, { email }],
           },
         });
 
@@ -123,13 +122,13 @@ export async function POST(req: NextRequest) {
         // สร้างข้อมูลในฐานข้อมูล (รวมการ lookup/create ของ org/dept/div/unit)
         await prisma.$transaction(async (tx) => {
           // 1. สร้าง User
-          const passwordHash = await bcrypt.hash(String(row.idCard), 10);
+          const passwordHash = await bcrypt.hash(idCard, 10);
           const user = await tx.user.create({
             data: {
-              email: row.email,
+              email,
               passwordHash,
               role: "USER",
-              name: `${row.firstName} ${row.lastName}`,
+              name: `${firstName} ${lastName}`,
             },
           });
 
@@ -288,12 +287,12 @@ export async function POST(req: NextRequest) {
           // 3. สร้าง Employee พร้อม *_Id และ normalized levelP
           const created = await tx.employee.create({
             data: {
-              empNo: row.empNo,
-              prefix: row.prefix || "",
-              firstName: row.firstName,
-              lastName: row.lastName,
-              email: row.email,
-              idCard: String(row.idCard),
+              empNo,
+              prefix: prefix || "",
+              firstName,
+              lastName,
+              email,
+              idCard,
               org: orgName || row.org || "",
               department: deptName || row.department || "",
               division: divName || row.division || "",
@@ -303,10 +302,10 @@ export async function POST(req: NextRequest) {
               divisionId: divisionId ?? undefined,
               unitId: unitId ?? undefined,
               levelP: normalizedLevelP || "",
-              lineId: row.lineId || "",
+              lineId: lineId || "",
               startDate,
-              weeklyHoliday: row.weeklyHoliday || "",
-              photoUrl: row.photoUrl || "",
+              weeklyHoliday: weeklyHoliday || "",
+              photoUrl: photoUrl || "",
               userId: user.id,
             },
           });
@@ -332,20 +331,31 @@ export async function POST(req: NextRequest) {
 
           // ---- NEW: carry forward from Excel (optional) -> goes into LeaveRights table ----
           const hasCfAnnual = typeof row.carryForwardAnnual !== "undefined";
-          const hasCfAnnualExpiry = typeof row.carryForwardAnnualExpiry !== "undefined";
+          const hasCfAnnualExpiry =
+            typeof row.carryForwardAnnualExpiry !== "undefined";
           const hasCfHoliday = typeof row.carryForwardHoliday !== "undefined";
-          const hasCfHolidayExpiry = typeof row.carryForwardHolidayExpiry !== "undefined";
+          const hasCfHolidayExpiry =
+            typeof row.carryForwardHolidayExpiry !== "undefined";
 
-          const cfAnnual = hasCfAnnual ? (toIntOrNull(row.carryForwardAnnual) ?? 0) : 0;
-          const cfHoliday = hasCfHoliday ? (toIntOrNull(row.carryForwardHoliday) ?? 0) : 0;
+          const cfAnnual = hasCfAnnual
+            ? toIntOrNull(row.carryForwardAnnual) ?? 0
+            : 0;
+          const cfHoliday = hasCfHoliday
+            ? toIntOrNull(row.carryForwardHoliday) ?? 0
+            : 0;
 
           const cfAnnualExpiry =
-            (hasCfAnnualExpiry ? toDateOrNull(row.carryForwardAnnualExpiry) : null) ??
-            (cfAnnual > 0 && startDate ? anniversaryInYear(startDate, currentYear) : null);
+            (hasCfAnnualExpiry
+              ? toDateOrNull(row.carryForwardAnnualExpiry)
+              : null) ??
+            (cfAnnual > 0 && startDate
+              ? anniversaryInYear(startDate, currentYear)
+              : null);
 
           const cfHolidayExpiry =
-            (hasCfHolidayExpiry ? toDateOrNull(row.carryForwardHolidayExpiry) : null) ??
-            (cfHoliday > 0 ? new Date(currentYear, 8, 30) : null); // 30/09
+            (hasCfHolidayExpiry
+              ? toDateOrNull(row.carryForwardHolidayExpiry)
+              : null) ?? (cfHoliday > 0 ? new Date(currentYear, 8, 30) : null); // 30/09
 
           const carryCreate = {
             carryForwardAnnual: cfAnnual,
