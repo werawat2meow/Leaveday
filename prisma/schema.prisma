@@ -3,8 +3,8 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")  
+  provider          = "postgresql"
+  url               = env("DATABASE_URL")
 }
 
 // ---- Enums ----
@@ -136,6 +136,8 @@ model Employee {
 
   photoUrl String?
 
+  approvers      Approver[] @relation("EmployeeApprovers")
+
   organization Organization? @relation("OrgToEmployee", fields: [orgId], references: [id])
   departmentRel Department?  @relation("DeptToEmployee", fields: [departmentId], references: [id])
   divisionRel   Division?    @relation("DivToEmployee", fields: [divisionId], references: [id])
@@ -189,6 +191,9 @@ model Approver {
   level       String?
   lineId      String?
   email       String?  @unique
+
+  employees      Employee[] @relation("EmployeeApprovers")
+  allowCrossOrg Boolean  @default(false)
 
   organization Organization? @relation("OrgToApprover", fields: [orgId], references: [id])
   departmentRel Department?  @relation("DeptToApprover", fields: [departmentId], references: [id])

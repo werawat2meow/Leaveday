@@ -3,8 +3,19 @@
 import EmployeeListModal, {
   type Employee,
 } from "@/components/EmployeeListModal";
-import { useSession } from "next-auth/react";
 import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useSession } from "next-auth/react";
+
+// เพิ่ม: สำหรับ Approver
+type Approver = {
+  id: number;
+  firstNameTh: string;
+  lastNameTh: string;
+  empNo: string;
+};
+
+
 
 type EmployeeForm = {
   id?: string | null;
@@ -101,17 +112,8 @@ function toDbPath(u?: string | null) {
 }
 
 export default function ProfileSettingsPage() {
-  const { data: session } = useSession();
-  const canImport = session?.user?.email === "master@company.com";
-  const [photoFile, setPhotoFile] = useState<File | null>(null);
-  const [photoUrl, setPhotoUrl] = useState<string | null>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
-  const [organizations, setOrganizations] = useState<any[]>([]);
-  const [departments, setDepartments] = useState<any[]>([]);
-  const [divisions, setDivisions] = useState<any[]>([]);
-  const [units, setUnits] = useState<any[]>([]);
 
-  const [form, setForm] = useState<any>({
+    const [form, setForm] = useState<any>({
     id: null,
     empNo: "",
     firstName: "",
@@ -122,6 +124,83 @@ export default function ProfileSettingsPage() {
     divisionId: undefined,
     unitId: undefined,
   });
+  // เพิ่ม state สำหรับ approverIds และ approvers
+  const [approverIds, setApproverIds] = useState<number[]>([]);
+  const [approvers, setApprovers] = useState<Approver[]>([]);
+    // โหลดรายชื่อ Approver (อาจ filter ตามแผนก/สังกัดได้ถ้าต้องการ)
+    // NOTE: don't clear approvers if we already have assigned approvers (e.g. when picking an employee)
+    useEffect(() => {
+      if (
+        !form.orgId &&
+        !form.departmentId &&
+        !form.divisionId &&
+        !form.unitId &&
+        approvers.length === 0
+      ) {
+        setApprovers([]);
+        return;
+      }
+      const params = new URLSearchParams({
+        orgId: form.orgId ? String(form.orgId) : "",
+        departmentId: form.departmentId ? String(form.departmentId) : "",
+        divisionId: form.divisionId ? String(form.divisionId) : "",
+        unitId: form.unitId ? String(form.unitId) : "",
+      });
+      fetch(`/api/approvers?${params.toString()}`)
+        .then((res) => res.json())
+        .then((list) => {
+          const normalized = (list || []).map((a: any) => ({
+            id: Number(a.id),
+            firstNameTh: a.firstNameTh ?? a.firstName ?? "",
+            lastNameTh: a.lastNameTh ?? a.lastName ?? "",
+            empNo: a.empNo ?? "",
+          }));
+          setApprovers(normalized);
+        })
+        .catch(() => setApprovers([]));
+    }, [form.orgId, form.departmentId, form.divisionId, form.unitId]);
+  const { data: session } = useSession();
+  const canImport = session?.user?.email === "master@company.com";
+  const router = useRouter();
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
+  const [photoUrl, setPhotoUrl] = useState<string | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [organizations, setOrganizations] = useState<any[]>([]);
+  const [departments, setDepartments] = useState<any[]>([]);
+  const [divisions, setDivisions] = useState<any[]>([]);
+  const [units, setUnits] = useState<any[]>([]);
+  const [searchApprover, setSearchApprover] = useState("");
+
+  // helper: load the approver pool for given org/department/division/unit
+  async function loadApproverPool(
+    orgId?: number,
+    departmentId?: number,
+    divisionId?: number,
+    unitId?: number
+  ) {
+    try {
+      const params = new URLSearchParams({
+        orgId: orgId ? String(orgId) : "",
+        departmentId: departmentId ? String(departmentId) : "",
+        divisionId: divisionId ? String(divisionId) : "",
+        unitId: unitId ? String(unitId) : "",
+      });
+      const resp = await fetch(`/api/approvers?${params.toString()}`, { cache: "no-store" });
+      if (!resp.ok) return [];
+      const list = await resp.json();
+      return (list || []).map((a: any) => ({
+        id: Number(a.id),
+        firstNameTh: a.firstNameTh ?? a.firstName ?? "",
+        lastNameTh: a.lastNameTh ?? a.lastName ?? "",
+        empNo: a.empNo ?? "",
+      }));
+    } catch (err) {
+      console.warn("[LOAD_APPROVER_POOL]", err);
+      return [];
+    }
+  }
+  
+
   const [saving, setSaving] = useState(false);
   const [importing, setImporting] = useState(false);
   const [importFile, setImportFile] = useState<File | null>(null);
@@ -195,7 +274,7 @@ export default function ProfileSettingsPage() {
   const [openEmpModal, setOpenEmpModal] = useState(false);
 
   // ✅ เมื่อเลือกจากโมดัล → กรอกฟอร์มครบทุกฟิลด์
-  function handlePickEmployee(e: Employee) {
+  async function handlePickEmployee(e: Employee) {
     if (e._raw) {
       const newForm = mapEmployeeToForm(e._raw);
       setForm(newForm);
@@ -224,6 +303,30 @@ export default function ProfileSettingsPage() {
             }
           });
       }
+      // assigned approvers (from modal) — keep as IDs
+      const rawApprovers = e._raw?.approvers ?? [];
+      const assignedIds = rawApprovers.map((a: any) => Number(a.id));
+
+      // load full approver pool for this employee's org/department/etc
+      const pool = await loadApproverPool(newForm.orgId, newForm.departmentId, newForm.divisionId, newForm.unitId);
+      setApprovers(pool);
+      // mark selected ones
+      setApproverIds(assignedIds);
+
+      // if modal didn't include assigned approvers, try fetching employee to get assigned list
+      if (assignedIds.length === 0 && newForm.id) {
+        try {
+          const resp = await fetch(`/api/employees?id=${newForm.id}`, { cache: "no-store" });
+          if (resp.ok) {
+            const full = await resp.json();
+            const fetched = full?.approvers ?? [];
+            const fetchedIds = fetched.map((a: any) => Number(a.id));
+            setApproverIds(fetchedIds);
+          }
+        } catch (err) {
+          console.warn("[FETCH_EMP_APPROVERS]", err);
+        }
+      }
     } else {
       const parts = (e.name || "").trim().split(/\s+/);
       const first = parts[0] ?? "";
@@ -236,6 +339,28 @@ export default function ProfileSettingsPage() {
         lastName: last || prev.lastName,
         department: e.dept ?? prev.department,
       }));
+      // Try fetch approvers by id if available (modal might provide only id/name)
+      if (e.id) {
+        try {
+          const resp = await fetch(`/api/employees?id=${e.id}`, { cache: "no-store" });
+          if (resp.ok) {
+            const full = await resp.json();
+            const fetched = full?.approvers ?? [];
+            const fetchedIds = fetched.map((a: any) => Number(a.id));
+            // load pool for the employee and set assigned ids
+            const pool = await loadApproverPool(full?.orgId, full?.departmentId, full?.divisionId, full?.unitId);
+            setApprovers(pool);
+            setApproverIds(fetchedIds);
+          } else {
+            setApproverIds([]);
+          }
+        } catch (err) {
+          console.warn("[FETCH_EMP_APPROVERS]", err);
+          setApproverIds([]);
+        }
+      } else {
+        setApproverIds([]);
+      }
     }
 
     // ✅ สำคัญ: รีเซ็ตพรีวิวไฟล์ท้องถิ่น เพื่อให้ใช้รูปจาก form.photoUrl
@@ -288,6 +413,7 @@ export default function ProfileSettingsPage() {
         division: divisions.find((x) => x.id === form.divisionId)?.name || "",
         unit: units.find((x) => x.id === form.unitId)?.name || "",
         photoUrl: photoUrlForDb,
+        approverIds, // เพิ่มตรงนี้
       };
       const isEdit = !!form.id;
       const url = isEdit ? `/api/employees?id=${form.id}` : "/api/employees";
@@ -307,6 +433,26 @@ export default function ProfileSettingsPage() {
 
       const newForm = mapEmployeeToForm(data);
       setForm(newForm);
+      // determine assigned ids from response or fetch
+      let assignedIds: number[] = [];
+      if (Array.isArray(data?.approvers)) {
+        assignedIds = (data.approvers || []).map((a: any) => Number(a.id));
+      } else {
+        try {
+          const resp = await fetch(`/api/employees?id=${newForm.id}`, { cache: "no-store" });
+          if (resp.ok) {
+            const full = await resp.json();
+            assignedIds = (full?.approvers || []).map((a: any) => Number(a.id));
+          }
+        } catch (err) {
+          console.warn("[EMP_SAVE] fallback fetch error", err);
+        }
+      }
+
+      // load pool based on newForm's org/department/etc and set assigned ids
+      const pool = await loadApproverPool(newForm.orgId, newForm.departmentId, newForm.divisionId, newForm.unitId);
+      setApprovers(pool);
+      setApproverIds(assignedIds);
       // โหลด dropdown ตาม id ที่ได้มาใหม่
       if (newForm.orgId) {
         fetch(`/api/organizations/${newForm.orgId}/departments`)
@@ -324,6 +470,12 @@ export default function ProfileSettingsPage() {
           .then(setUnits);
       }
       alert("บันทึกสำเร็จ");
+      // hard reload to ensure latest data is shown immediately
+      try {
+        window.location.reload();
+      } catch (e) {
+        // ignore
+      }
     } catch (e) {
       console.error("[EMP_SAVE] unexpected error:", e);
       alert("เกิดข้อผิดพลาด");
@@ -407,6 +559,7 @@ export default function ProfileSettingsPage() {
     setPhotoFile(null);
     setPhotoUrl(null);
     if (inputRef.current) inputRef.current.value = "";
+    setApproverIds([]);
   }
 
   function onClearClick() {
@@ -681,6 +834,7 @@ export default function ProfileSettingsPage() {
               ))}
             </select>
           </label>
+
           <Field
             label="ตำแหน่ง"
             placeholder="ตำแหน่ง"
@@ -735,6 +889,47 @@ export default function ProfileSettingsPage() {
             value={form.photoUrl ?? ""}
             onChange={(v) => setF({ photoUrl: v })}
           />
+
+          {/* Multi-select Approver */}
+          <label className="block">
+            ผู้อนุมัติ
+            <input
+              type="text"
+              placeholder="ค้นหาชื่อผู้อนุมัติ..."
+              className="neon-input w-full rounded-xl p-2 mb-2"
+              value={searchApprover}
+              onChange={e => setSearchApprover(e.target.value)}
+            />
+            <div className="flex flex-col gap-1 mt-1 max-h-40 overflow-y-auto border rounded-xl p-2 bg-white/5">
+              {approvers
+                .filter(a =>
+                  `${a.firstNameTh} ${a.lastNameTh} ${a.empNo}`
+                    .toLowerCase()
+                    .includes(searchApprover.toLowerCase())
+                )
+                .map(a => (
+                  <label key={a.id} className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={approverIds.includes(a.id)}
+                      onChange={e => {
+                        if (e.target.checked) {
+                          setApproverIds([...approverIds, a.id]);
+                        } else {
+                          setApproverIds(approverIds.filter(id => id !== a.id));
+                        }
+                      }}
+                    />
+                    <span>
+                      {a.firstNameTh} {a.lastNameTh}
+                    </span>
+                  </label>
+                ))}
+              {approvers.length === 0 && (
+                <span className="text-xs text-gray-400">ไม่มีผู้อนุมัติในสังกัดนี้</span>
+              )}
+            </div>
+          </label>
         </div>
       </div>
 

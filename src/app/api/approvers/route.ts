@@ -26,8 +26,23 @@ function genTempPassword(len = 10) {
 }
 
 /* ---------------- GET: list approvers ---------------- */
-export async function GET() {
-  const items = await prisma.approver.findMany({ orderBy: { id: "desc" } });
+export async function GET(req: NextRequest) {
+  const { searchParams } = new URL(req.url);
+  const orgId = Number(searchParams.get("orgId")) || undefined;
+  const departmentId = Number(searchParams.get("departmentId")) || undefined;
+  const divisionId = Number(searchParams.get("divisionId")) || undefined;
+  const unitId = Number(searchParams.get("unitId")) || undefined;
+
+  const where: any = {};
+  if (orgId) where.orgId = orgId;
+  if (departmentId) where.departmentId = departmentId;
+  if (divisionId) where.divisionId = divisionId;
+  if (unitId) where.unitId = unitId;
+
+  const items = await prisma.approver.findMany({
+    where,
+    orderBy: { id: "desc" },
+  });
   return NextResponse.json(items);
 }
 

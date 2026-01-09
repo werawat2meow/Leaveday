@@ -8,7 +8,25 @@ import { NextRequest, NextResponse } from "next/server";
 type Role = "MASTER_ADMIN" | "ADMIN" | "MANAGER" | "USER";
 
 /* ---------------- GET: list employees ---------------- */
-export async function GET() {
+export async function GET(req: NextRequest) {
+  const { searchParams } = new URL(req.url);
+  const id = searchParams.get("id");
+
+  // if id provided -> return single employee with approvers
+  if (id) {
+    const n = Number(id);
+    if (!Number.isFinite(n) || n <= 0) {
+      return NextResponse.json({ error: "invalid id" }, { status: 400 });
+    }
+    const emp = await prisma.employee.findUnique({
+      where: { id: n },
+      include: { approvers: true },
+    });
+    if (!emp) return NextResponse.json({ error: "not found" }, { status: 404 });
+    return NextResponse.json(emp);
+  }
+
+  // otherwise return list (requires session)
   const session = await getServerSession(authOptions);
   if (!session)
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -99,7 +117,11 @@ export async function POST(req: NextRequest) {
           weeklyHoliday: body.weeklyHoliday ?? null,
           photoUrl: body.photoUrl ?? null,
           userId: user.id,
+          approvers: {
+            connect: (body.approverIds ?? []).map((id: number) => ({ id })),
+          },
         },
+        include: { approvers: true },
       });
 
       // ดึง LeaveRightsTemplate ตาม prefix (ถ้ามีค่า)
@@ -250,7 +272,16 @@ export async function PUT(req: NextRequest) {
             typeof body.photoUrl !== "undefined"
               ? body.photoUrl || null
               : undefined,
+          // only modify approvers relation when approverIds is explicitly provided
+          ...(typeof body.approverIds !== "undefined"
+            ? {
+                approvers: {
+                  set: (body.approverIds ?? []).map((id: any) => ({ id: Number(id) })),
+                },
+              }
+            : {}),
         },
+        include: { approvers: true },
       });
 
       if (emp.email) {

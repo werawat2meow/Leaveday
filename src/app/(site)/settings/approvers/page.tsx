@@ -135,10 +135,79 @@ export default function ApproversPage() {
       .catch(() => setUnits([]));
   }, [form.divisionId]);
 
-    const handlePick = (a: Approver) => {
+    const handlePick = async (a: Approver) => {
     console.log("[PICK]", a);
-    // Use the single mapper so both top-level and _raw shapes are handled the same way
-    setForm(mapApproverToForm(a as any));
+    // map minimal -> form
+    let mapped = mapApproverToForm(a as any);
+
+    // fallback: ถ้าไม่มี id ของสังกัด/แผนก/ฝ่าย ให้ดึงข้อมูลเต็มจาก server
+    if ((!mapped.orgId && !mapped.departmentId && !mapped.divisionId) && mapped.id) {
+      try {
+        const r = await fetch(`/api/approvers?id=${mapped.id}`, { cache: "no-store" });
+        if (r.ok) {
+          const full = await r.json();
+          mapped = mapApproverToForm(full);
+        }
+      } catch (err) {
+        console.warn("[PICK_FETCH_FULL_FAIL]", err);
+      }
+    }
+
+    // try resolve orgId from loaded orgs if missing
+    if (!mapped.orgId && mapped.org) {
+      const foundOrg = orgs.find(
+        (o) => (o.name ?? "").trim() === String(mapped.org).trim() || String(o.id) === String(mapped.org)
+      );
+      if (foundOrg) mapped.orgId = foundOrg.id;
+    }
+
+    try {
+      if (mapped.orgId) {
+        const depsRes = await fetch(`/api/organizations/${mapped.orgId}/departments`);
+        const depsData = await depsRes.json().catch(() => []);
+        const mappedDeps = Array.isArray(depsData)
+          ? depsData.map((d: any) => ({ id: d.id, name: d.name ?? d.title ?? d.department ?? String(d.id) }))
+          : [];
+        setDepts(mappedDeps);
+
+        if (!mapped.departmentId && mapped.department) {
+          const fd = mappedDeps.find((d) => d.name === mapped.department || String(d.id) === String(mapped.department));
+          if (fd) mapped.departmentId = fd.id;
+        }
+
+        if (mapped.departmentId) {
+          const divRes = await fetch(`/api/departments/${mapped.departmentId}/divisions`);
+          const divsData = await divRes.json().catch(() => []);
+          const mappedDivs = Array.isArray(divsData)
+            ? divsData.map((d: any) => ({ id: d.id, name: d.name ?? d.title ?? d.division ?? String(d.id) }))
+            : [];
+          setDivs(mappedDivs);
+
+          if (!mapped.divisionId && mapped.division) {
+            const fv = mappedDivs.find((d) => d.name === mapped.division || String(d.id) === String(mapped.division));
+            if (fv) mapped.divisionId = fv.id;
+          }
+
+          if (mapped.divisionId) {
+            const uRes = await fetch(`/api/divisions/${mapped.divisionId}/units`);
+            const uData = await uRes.json().catch(() => []);
+            const mappedUnits = Array.isArray(uData)
+              ? uData.map((u: any) => ({ id: u.id, name: u.name ?? u.title ?? u.unit ?? String(u.id) }))
+              : [];
+            setUnits(mappedUnits);
+
+            if (!mapped.unitId && mapped.unit) {
+              const fu = mappedUnits.find((u) => u.name === mapped.unit || String(u.id) === String(mapped.unit));
+              if (fu) mapped.unitId = fu.id;
+            }
+          }
+        }
+      }
+    } catch (err) {
+      console.warn("[PICK_RESOLVE]", err);
+    }
+
+    setForm(mapped);
     setOpen(false);
   };
 

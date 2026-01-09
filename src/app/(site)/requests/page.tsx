@@ -665,16 +665,32 @@ export default function LeavePage() {
         }
 
         const raw = await res.json();
-        const list = (raw?.data || []) as ApproverOption[];
+        // normalize + dedupe by id
+        const arr = (raw?.data || []) as ApproverOption[];
+        const map = new Map<number, ApproverOption>();
+        for (const a of arr) {
+          const id = Number(a.id);
+          if (!map.has(id)) map.set(id, { ...a, id });
+        }
+        const list = Array.from(map.values());
 
-        setApprovers(list);
+        // ถ้ามีพนักงาน (me) และพนักงานมี approvers ที่ผูกไว้ ให้แสดงเฉพาะผู้อนุมัติที่ผูกไว้
+        const assigned = (me?.employee as any)?.approvers ?? [];
+        let visibleList = list;
+        if (Array.isArray(assigned) && assigned.length > 0) {
+          const assignedIds = assigned.map((a: any) => Number(a.id));
+          visibleList = list.filter((p) => assignedIds.includes(Number(p.id)));
+        }
 
-        // ถ้ายังไม่ได้เลือก approverId และมีรายชื่อ → set default เป็นคนแรก
-        if (!leave.approverId && list.length > 0) {
+        setApprovers(visibleList);
+
+        // ถ้ายังไม่ได้เลือก approverId: ให้ตั้ง default เฉพาะเมื่อพนักงานมี assigned และ visibleList มีรายการ
+        if (!leave.approverId && Array.isArray(assigned) && assigned.length > 0 && visibleList.length > 0) {
+          const pick = visibleList[0];
           setLeave((s) => ({
             ...s,
-            approverId: list[0].id,
-            handoverTo: list[0].name, // ชื่อผู้อนุมัติ เผื่อใช้ส่งไปเก็บเป็น text
+            approverId: pick.id,
+            handoverTo: pick.name ?? s.handoverTo,
           }));
         }
       } catch (e: any) {

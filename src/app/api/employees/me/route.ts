@@ -62,6 +62,7 @@ export async function GET() {
     if (session.user.email) {
       employee = await prisma.employee.findFirst({
         where: { email: session.user.email! },
+        include: { approvers: true },
       });
       console.log(
         `Attempted to find employee by email: "${session.user.email}". Found: ${
@@ -274,6 +275,12 @@ export async function GET() {
         levelP: employee.levelP ?? "",
         idCard: employee.idCard ?? "",
         photoUrl: employee.photoUrl ?? null,
+        approvers: (employee.approvers || []).map((a: any) => ({
+          id: a.id,
+          firstNameTh: a.firstNameTh ?? a.firstName ?? "",
+          lastNameTh: a.lastNameTh ?? a.lastName ?? "",
+          empNo: a.empNo ?? "",
+        })),
       },
       rights: { entitled, used, remaining, levelFrom: employee.levelP ?? null },
     });
