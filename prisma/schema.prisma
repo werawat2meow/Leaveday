@@ -4,11 +4,10 @@ generator client {
 
 datasource db {
   provider = "postgresql"
+  url      = env("DATABASE_URL")  
 }
 
-/**
- * ---- Enums ----
- */
+// ---- Enums ----
 enum Role {
   MASTER_ADMIN
   ADMIN
@@ -43,9 +42,7 @@ enum LeaveSession {
   PM     // ครึ่งบ่าย
 }
 
-/**
- * ---- Models ----
- */
+// ---- Models ----
 model User {
   id           Int     @id @default(autoincrement())
   name         String?
