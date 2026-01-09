@@ -102,35 +102,38 @@ export async function POST(req: NextRequest) {
           continue;
         }
 
-        // ตรวจสอบข้อมูลซ้ำ
-        const existingUser = await prisma.user.findFirst({ where: { email } });
 
+        // ค้นหาข้อมูลเดิม (user/employee)
+        const existingUser = await prisma.user.findFirst({ where: { email } });
         const existingEmployee = await prisma.employee.findFirst({
           where: {
             OR: [{ empNo }, { idCard }, { email }],
           },
         });
 
-        if (existingUser || existingEmployee) {
-          results.failed++;
-          results.errors.push(
-            `แถว ${rowNumber}: ข้อมูลซ้ำ (empNo: ${row.empNo}, email: ${row.email}, หรือ idCard)`
-          );
-          continue;
-        }
-
-        // สร้างข้อมูลในฐานข้อมูล (รวมการ lookup/create ของ org/dept/div/unit)
+        // สร้างหรืออัปเดตข้อมูลในฐานข้อมูล (รวมการ lookup/create ของ org/dept/div/unit)
         await prisma.$transaction(async (tx) => {
-          // 1. สร้าง User
-          const passwordHash = await bcrypt.hash(idCard, 10);
-          const user = await tx.user.create({
-            data: {
-              email,
-              passwordHash,
-              role: "USER",
-              name: `${firstName} ${lastName}`,
-            },
-          });
+          // 1. สร้างหรืออัปเดต User
+          let user;
+          if (existingUser) {
+            user = await tx.user.update({
+              where: { id: existingUser.id },
+              data: {
+                name: `${firstName} ${lastName}`,
+                // เพิ่ม field อื่นๆ ที่ต้องการอัปเดต เช่น passwordHash ถ้าต้องการ
+              },
+            });
+          } else {
+            const passwordHash = await bcrypt.hash(idCard, 10);
+            user = await tx.user.create({
+              data: {
+                email,
+                passwordHash,
+                role: "USER",
+                name: `${firstName} ${lastName}`,
+              },
+            });
+          }
 
           // 2. Lookup / create organization, department, division, unit (auto-create when not found)
           const trim = (v: any) => (v == null ? "" : String(v).trim());
@@ -284,31 +287,60 @@ export async function POST(req: NextRequest) {
 
           const startDate = toDateOrNull(row.startDate);
 
-          // 3. สร้าง Employee พร้อม *_Id และ normalized levelP
-          const created = await tx.employee.create({
-            data: {
-              empNo,
-              prefix: prefix || "",
-              firstName,
-              lastName,
-              email,
-              idCard,
-              org: orgName || row.org || "",
-              department: deptName || row.department || "",
-              division: divName || row.division || "",
-              unit: unitName || row.unit || "",
-              orgId: orgId ?? undefined,
-              departmentId: departmentId ?? undefined,
-              divisionId: divisionId ?? undefined,
-              unitId: unitId ?? undefined,
-              levelP: normalizedLevelP || "",
-              lineId: lineId || "",
-              startDate,
-              weeklyHoliday: weeklyHoliday || "",
-              photoUrl: photoUrl || "",
-              userId: user.id,
-            },
-          });
+          // 3. สร้างหรืออัปเดต Employee พร้อม *_Id และ normalized levelP
+          let employeeRec;
+          if (existingEmployee) {
+            employeeRec = await tx.employee.update({
+              where: { id: existingEmployee.id },
+              data: {
+                empNo,
+                prefix: prefix || "",
+                firstName,
+                lastName,
+                email,
+                idCard,
+                org: orgName || row.org || "",
+                department: deptName || row.department || "",
+                division: divName || row.division || "",
+                unit: unitName || row.unit || "",
+                orgId: orgId ?? undefined,
+                departmentId: departmentId ?? undefined,
+                divisionId: divisionId ?? undefined,
+                unitId: unitId ?? undefined,
+                levelP: normalizedLevelP || "",
+                lineId: lineId || "",
+                startDate,
+                weeklyHoliday: weeklyHoliday || "",
+                photoUrl: photoUrl || "",
+                userId: user.id,
+              },
+            });
+          } else {
+            employeeRec = await tx.employee.create({
+              data: {
+                empNo,
+                prefix: prefix || "",
+                firstName,
+                lastName,
+                email,
+                idCard,
+                org: orgName || row.org || "",
+                department: deptName || row.department || "",
+                division: divName || row.division || "",
+                unit: unitName || row.unit || "",
+                orgId: orgId ?? undefined,
+                departmentId: departmentId ?? undefined,
+                divisionId: divisionId ?? undefined,
+                unitId: unitId ?? undefined,
+                levelP: normalizedLevelP || "",
+                lineId: lineId || "",
+                startDate,
+                weeklyHoliday: weeklyHoliday || "",
+                photoUrl: photoUrl || "",
+                userId: user.id,
+              },
+            });
+          }
 
           // create leaveRights for the employee: prefer template, else explicit, else zeros
           const lrTemplate = normalizedLevelP
@@ -378,13 +410,13 @@ export async function POST(req: NextRequest) {
             await tx.leaveRights.upsert({
               where: {
                 employeeId_year: {
-                  employeeId: created.id,
+                  employeeId: employeeRec.id,
                   year: currentYear,
                 },
               },
               update: carryUpdate,
               create: {
-                employeeId: created.id,
+                employeeId: employeeRec.id,
                 year: currentYear,
                 annualLeave: lrTemplate.annualLeaveDays,
                 holidayLeave: lrTemplate.holidayLeaveDays,
@@ -402,13 +434,13 @@ export async function POST(req: NextRequest) {
             await tx.leaveRights.upsert({
               where: {
                 employeeId_year: {
-                  employeeId: created.id,
+                  employeeId: employeeRec.id,
                   year: currentYear,
                 },
               },
               update: carryUpdate,
               create: {
-                employeeId: created.id,
+                employeeId: employeeRec.id,
                 year: currentYear,
                 annualLeave: Number(row.annualHolidays) || 0,
                 holidayLeave: 0,
@@ -426,13 +458,13 @@ export async function POST(req: NextRequest) {
             await tx.leaveRights.upsert({
               where: {
                 employeeId_year: {
-                  employeeId: created.id,
+                  employeeId: employeeRec.id,
                   year: currentYear,
                 },
               },
               update: carryUpdate,
               create: {
-                employeeId: created.id,
+                employeeId: employeeRec.id,
                 year: currentYear,
                 annualLeave: 0,
                 holidayLeave: 0,
