@@ -28,11 +28,22 @@ function genTempPassword(len = 10) {
 /* ---------------- GET: list approvers ---------------- */
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
+  const id = Number(searchParams.get("id"));
   const orgId = Number(searchParams.get("orgId")) || undefined;
   const departmentId = Number(searchParams.get("departmentId")) || undefined;
   const divisionId = Number(searchParams.get("divisionId")) || undefined;
   const unitId = Number(searchParams.get("unitId")) || undefined;
 
+  // ถ้ามี id ให้ดึงรายตัว (พร้อม orgId, departmentId, divisionId, unitId)
+  if (Number.isFinite(id) && id > 0) {
+    const approver = await prisma.approver.findUnique({
+      where: { id },
+    });
+    if (!approver) return NextResponse.json({ error: "not found" }, { status: 404 });
+    return NextResponse.json(approver);
+  }
+
+  // otherwise: รายชื่อทั้งหมดตาม org/department/division/unit
   const where: any = {};
   if (orgId) where.orgId = orgId;
   if (departmentId) where.departmentId = departmentId;

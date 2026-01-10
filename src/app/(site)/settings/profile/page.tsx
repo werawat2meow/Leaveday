@@ -127,38 +127,87 @@ export default function ProfileSettingsPage() {
   // เพิ่ม state สำหรับ approverIds และ approvers
   const [approverIds, setApproverIds] = useState<number[]>([]);
   const [approvers, setApprovers] = useState<Approver[]>([]);
-    // โหลดรายชื่อ Approver (อาจ filter ตามแผนก/สังกัดได้ถ้าต้องการ)
-    // NOTE: don't clear approvers if we already have assigned approvers (e.g. when picking an employee)
-    useEffect(() => {
-      if (
-        !form.orgId &&
-        !form.departmentId &&
-        !form.divisionId &&
-        !form.unitId &&
-        approvers.length === 0
-      ) {
-        setApprovers([]);
+
+  const normalizeApprover = (a: any): Approver => ({
+    id: Number(a.id),
+    firstNameTh: a.firstNameTh ?? a.firstName ?? "",
+    lastNameTh: a.lastNameTh ?? a.lastName ?? "",
+    empNo: a.empNo ?? "",
+  });
+
+  const mergeUniqueApprovers = (list: Approver[]) => {
+    const m = new Map<number, Approver>();
+    for (const it of list) {
+      if (!it || !Number.isFinite(it.id)) continue;
+      if (!m.has(it.id)) m.set(it.id, it);
+    }
+    return Array.from(m.values());
+  };
+
+  async function fetchApproverById(id: number): Promise<Approver | null> {
+    try {
+      const r = await fetch(`/api/approvers?id=${id}`, { cache: "no-store" });
+      if (!r.ok) return null;
+      const data = await r.json();
+      return normalizeApprover(data);
+    } catch {
+      return null;
+    }
+  }
+
+  // โหลดรายชื่อ Approver (pool) + รวมรายชื่อที่ถูก assign (approverIds) เสมอ
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      const hasFilter = !!(
+        form.orgId ||
+        form.departmentId ||
+        form.divisionId ||
+        form.unitId
+      );
+
+      // ไม่มี filter และไม่มี assigned -> เคลียร์
+      if (!hasFilter && approverIds.length === 0) {
+        if (alive) setApprovers([]);
         return;
       }
-      const params = new URLSearchParams({
-        orgId: form.orgId ? String(form.orgId) : "",
-        departmentId: form.departmentId ? String(form.departmentId) : "",
-        divisionId: form.divisionId ? String(form.divisionId) : "",
-        unitId: form.unitId ? String(form.unitId) : "",
-      });
-      fetch(`/api/approvers?${params.toString()}`)
-        .then((res) => res.json())
-        .then((list) => {
-          const normalized = (list || []).map((a: any) => ({
-            id: Number(a.id),
-            firstNameTh: a.firstNameTh ?? a.firstName ?? "",
-            lastNameTh: a.lastNameTh ?? a.lastName ?? "",
-            empNo: a.empNo ?? "",
-          }));
-          setApprovers(normalized);
-        })
-        .catch(() => setApprovers([]));
-    }, [form.orgId, form.departmentId, form.divisionId, form.unitId]);
+
+      // 1) โหลด pool ตามสังกัด/แผนก/ฝ่าย/หน่วย (ถ้ามี filter)
+      let pool: Approver[] = [];
+      if (hasFilter) {
+        const params = new URLSearchParams({
+          orgId: form.orgId ? String(form.orgId) : "",
+          departmentId: form.departmentId ? String(form.departmentId) : "",
+          divisionId: form.divisionId ? String(form.divisionId) : "",
+          unitId: form.unitId ? String(form.unitId) : "",
+        });
+        try {
+          const res = await fetch(`/api/approvers?${params.toString()}`, {
+            cache: "no-store",
+          });
+          const list = await res.json().catch(() => []);
+          pool = (Array.isArray(list) ? list : []).map(normalizeApprover);
+        } catch {
+          pool = [];
+        }
+      }
+
+      // 2) เติมรายชื่อที่ถูก assign แต่ไม่อยู่ใน pool (เช่น อยู่คนละหน่วย)
+      const missing = approverIds.filter(
+        (id) => !pool.some((a) => Number(a.id) === Number(id))
+      );
+      if (missing.length > 0) {
+        const extras = await Promise.all(missing.map((id) => fetchApproverById(id)));
+        pool = mergeUniqueApprovers([...pool, ...extras.filter(Boolean) as Approver[]]);
+      }
+
+      if (alive) setApprovers(pool);
+    })();
+
+    return () => {
+      alive = false;
+    };
+  }, [form.orgId, form.departmentId, form.divisionId, form.unitId, approverIds]);
   const { data: session } = useSession();
   const canImport = session?.user?.email === "master@company.com";
   const router = useRouter();
@@ -303,30 +352,31 @@ export default function ProfileSettingsPage() {
             }
           });
       }
-      // assigned approvers (from modal) — keep as IDs
-      const rawApprovers = e._raw?.approvers ?? [];
-      const assignedIds = rawApprovers.map((a: any) => Number(a.id));
 
-      // load full approver pool for this employee's org/department/etc
-      const pool = await loadApproverPool(newForm.orgId, newForm.departmentId, newForm.divisionId, newForm.unitId);
-      setApprovers(pool);
-      // mark selected ones
-      setApproverIds(assignedIds);
-
-      // if modal didn't include assigned approvers, try fetching employee to get assigned list
-      if (assignedIds.length === 0 && newForm.id) {
+      // assigned approvers: อย่าพึ่งข้อมูลจาก modal (บางทีมาไม่ครบ) -> ดึงจาก server เสมอ
+      let assignedIds: number[] = (e._raw?.approvers ?? []).map((a: any) => Number(a.id));
+      if (newForm.id) {
         try {
           const resp = await fetch(`/api/employees?id=${newForm.id}`, { cache: "no-store" });
           if (resp.ok) {
             const full = await resp.json();
             const fetched = full?.approvers ?? [];
-            const fetchedIds = fetched.map((a: any) => Number(a.id));
-            setApproverIds(fetchedIds);
+            assignedIds = fetched.map((a: any) => Number(a.id));
           }
         } catch (err) {
           console.warn("[FETCH_EMP_APPROVERS]", err);
         }
       }
+
+      // load full approver pool for this employee's org/department/etc
+      const pool = await loadApproverPool(
+        newForm.orgId,
+        newForm.departmentId,
+        newForm.divisionId,
+        newForm.unitId
+      );
+      setApprovers(pool);
+      setApproverIds(assignedIds);
     } else {
       const parts = (e.name || "").trim().split(/\s+/);
       const first = parts[0] ?? "";
