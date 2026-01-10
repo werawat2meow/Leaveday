@@ -77,6 +77,10 @@ export async function POST(req: NextRequest) {
     department?: string;
     division?: string;
     unit?: string;
+    orgId?: number;
+    departmentId?: number;
+    divisionId?: number;
+    unitId?: number;
     level?: string;
     lineId?: string;
     email?: string;
@@ -115,6 +119,10 @@ export async function POST(req: NextRequest) {
           department: trimOrNull(body.department),
           division: trimOrNull(body.division),
           unit: trimOrNull(body.unit),
+          orgId: typeof body.orgId === "number" ? body.orgId : null,
+          departmentId: typeof body.departmentId === "number" ? body.departmentId : null,
+          divisionId: typeof body.divisionId === "number" ? body.divisionId : null,
+          unitId: typeof body.unitId === "number" ? body.unitId : null,
           level: trimOrNull(body.level),
           lineId: trimOrNull(body.lineId),
           email: normalizeEmail(body.email),
@@ -193,6 +201,10 @@ export async function PUT(req: NextRequest) {
     department?: string;
     division?: string;
     unit?: string;
+    orgId?: number;
+    departmentId?: number;
+    divisionId?: number;
+    unitId?: number;
     level?: string;
     lineId?: string;
     email?: string;
@@ -213,6 +225,7 @@ export async function PUT(req: NextRequest) {
         if (v === undefined) continue;
         if (k === "email") data.email = normalizeEmail(v as string);
         else if (typeof v === "string") data[k] = trimOrNull(v);
+        else if (["orgId", "departmentId", "divisionId", "unitId"].includes(k)) data[k] = typeof v === "number" ? v : null;
         else data[k] = v;
       }
 
