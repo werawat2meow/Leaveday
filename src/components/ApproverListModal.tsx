@@ -119,7 +119,7 @@ export default function ApproverListModal({
                          dark:border-slate-700 dark:bg-slate-800/80 dark:text-slate-100 dark:placeholder-slate-500"
             />
 
-            <div className="mt-3 rounded-xl border border-slate-200 overflow-hidden dark:border-white/10">
+            <div className="mt-3 rounded-xl border border-slate-200 overflow-hidden dark:border-white/10" style={{ maxHeight: "400px", overflowY: "auto" }}>
               <table className="w-full text-sm">
                 <thead className="bg-slate-50 text-slate-700 dark:bg-slate-900/40 dark:text-slate-300">
                   <tr>
