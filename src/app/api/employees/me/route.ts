@@ -58,6 +58,14 @@ export async function GET() {
 
     let employee = null as any;
 
+    const includeOrgTree = {
+      approvers: true,
+      organization: true,
+      departmentRel: true,
+      divisionRel: true,
+      unitRel: true,
+    };
+
     // 1. ลองค้นหา Employee ด้วย email จาก session ก่อน (เพราะคุณบอกว่า login ด้วย email)
     if (session.user.email) {
       employee = await prisma.employee.findFirst({
@@ -103,6 +111,17 @@ export async function GET() {
         { status: 404 }
       );
     }
+
+    console.log("ME employee org fields:", {
+      org: employee.org,
+      orgRel: employee.organization?.name,
+      department: employee.department,
+      departmentRel: employee.departmentRel?.name,
+      division: employee.division,
+      divisionRel: employee.divisionRel?.name,
+      unit: employee.unit,
+      unitRel: employee.unitRel?.name,
+    });
 
     // --- ถ้าหา employee พบแล้ว โค้ดส่วนที่เหลือจะทำงานต่อตามปกติ ---
     console.log("Employee found successfully. Processing entitlements.");
@@ -261,17 +280,30 @@ export async function GET() {
     };
 
     // 4) ส่งข้อมูล employee + สิทธิ์
-    return NextResponse.json({
+     return NextResponse.json({
       employee: {
         empNo: employee.empNo,
         email: employee.email ?? "",
         prefix: employee.prefix ?? "",
         firstName: employee.firstName,
         lastName: employee.lastName,
+
+        // ✅ fallback ให้ได้ค่าจาก relation ถ้า field text ว่าง
+        org: employee.org ?? employee.organization?.name ?? "",
+        department: employee.department ?? employee.departmentRel?.name ?? "",
+        division: employee.division ?? employee.divisionRel?.name ?? "",
+        section: employee.unit ?? employee.unitRel?.name ?? "",
+
+        // (ถ้ายังมีใช้ที่อื่น)
         position:
-          employee.org ?? employee.division ?? employee.department ?? "",
-        section: employee.unit ?? "",
-        department: employee.department ?? "",
+          employee.org ??
+          employee.organization?.name ??
+          employee.division ??
+          employee.divisionRel?.name ??
+          employee.department ??
+          employee.departmentRel?.name ??
+          "",
+
         levelP: employee.levelP ?? "",
         idCard: employee.idCard ?? "",
         photoUrl: employee.photoUrl ?? null,

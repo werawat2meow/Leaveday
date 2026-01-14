@@ -48,6 +48,8 @@ type EmployeeForm = {
   position?: string;
   section?: string;
   department?: string;
+  division?: string; // เพิ่มฟิลด์ division
+  org?: string; // เพิ่มฟิลด์ org
   LevelP?: string;
   email: string;
   idCard: string;
@@ -579,12 +581,10 @@ export default function LeavePage() {
           ...s,
           Nametitle: raw.employee.prefix ?? s.Nametitle ?? "",
           empNo: raw.employee.empNo ?? s.empNo ?? "",
-          name: `${raw.employee.firstName ?? ""} ${
-            raw.employee.lastName ?? ""
-          }`.trim(),
-          position: raw.employee.position ?? s.position ?? "",
-          section: raw.employee.section ?? s.section ?? "",
+          name: `${raw.employee.firstName ?? ""} ${raw.employee.lastName ?? ""}`.trim(),
+          org: raw.employee.org ?? s.org ?? "", // ดึงข้อมูล org
           department: raw.employee.department ?? s.department ?? "",
+          division: raw.employee.division ?? s.division ?? "", // ดึงข้อมูล division
           LevelP: raw.employee.levelP ?? s.LevelP ?? "",
           email: raw.employee.email ?? s.email,
           idCard: raw.employee.idCard ?? s.idCard,
@@ -778,10 +778,9 @@ export default function LeavePage() {
               <Input label="Email" value={emp.email ?? ""} readOnly />
               <Input label="เลขบัตรประชาชน" value={emp.idCard ?? ""} readOnly />
 
-              <Input label="ตำแหน่ง" value={emp.position ?? ""} readOnly />
-              <Input label="Department" value={emp.department ?? ""} readOnly />
-
-              <Input label="Section" value={emp.section ?? ""} readOnly />
+              <Input label="สังกัด" value={emp.org ?? ""} readOnly /> {/* ดึงข้อมูลจาก org */}
+              <Input label="แผนก" value={emp.department ?? ""} readOnly /> {/* ดึงข้อมูลจาก department */}
+              <Input label="ฝ่าย" value={emp.division ?? ""} readOnly /> {/* ดึงข้อมูลจาก division */}
               <Input label="Level P" value={emp.LevelP ?? ""} readOnly />
 
               {/* ถ้ามีรูปภาพ */}
