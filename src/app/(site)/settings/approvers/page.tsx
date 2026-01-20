@@ -26,6 +26,7 @@ type Form = {
   levelP?: string;
   lineId?: string;
   email?: string;
+  allowCrossOrg?: boolean;
 };
 
 const init: Form = {
@@ -49,6 +50,7 @@ const init: Form = {
   levelP: "",
   lineId: "",
   email: "",
+  allowCrossOrg: false,
 };
 
 export default function ApproversPage() {
@@ -141,7 +143,12 @@ export default function ApproversPage() {
     let mapped = mapApproverToForm(a as any);
 
     // fallback: ถ้าไม่มี id ของสังกัด/แผนก/ฝ่าย ให้ดึงข้อมูลเต็มจาก server
-    if ((!mapped.orgId && !mapped.departmentId && !mapped.divisionId) && mapped.id) {
+    const needFull =
+      (!!mapped.id &&
+        ((!mapped.orgId && !mapped.departmentId && !mapped.divisionId) ||
+          typeof mapped.allowCrossOrg === "undefined"));
+
+    if (needFull && mapped.id) {
       try {
         const r = await fetch(`/api/approvers?id=${mapped.id}`, { cache: "no-store" });
         if (r.ok) {
@@ -156,7 +163,9 @@ export default function ApproversPage() {
     // try resolve orgId from loaded orgs if missing
     if (!mapped.orgId && mapped.org) {
       const foundOrg = orgs.find(
-        (o) => (o.name ?? "").trim() === String(mapped.org).trim() || String(o.id) === String(mapped.org)
+        (o) =>
+          (o.name ?? "").trim() === String(mapped.org).trim() ||
+          String(o.id) === String(mapped.org)
       );
       if (foundOrg) mapped.orgId = foundOrg.id;
     }
@@ -263,6 +272,7 @@ function mapApproverToForm(a: any): Form {
     levelP,
     lineId: getName("lineId", "line_id"),
     email: getName("email"),
+    allowCrossOrg: Boolean(a?.allowCrossOrg ?? raw?.allowCrossOrg ?? false),
   };
 }
 
@@ -304,6 +314,7 @@ function mapApproverToForm(a: any): Form {
         departmentId: form.departmentId ?? null,
         divisionId: form.divisionId ?? null,
         unitId: form.unitId ?? null,
+        allowCrossOrg: !!form.allowCrossOrg,
       };
       const payload = payloadAny;
       const isEdit = !!form.id;
@@ -481,6 +492,18 @@ function mapApproverToForm(a: any): Form {
           value={form.email ?? ""}
           onChange={(v) => setF({ email: v })}
         />
+        {/* ✅ เพิ่ม: checkbox allowCrossOrg */}
+        <label className="block">
+          <span className="mb-1 block text-sm">สิทธิ์ผู้อนุมัติ</span>
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={!!form.allowCrossOrg}
+              onChange={(e) => setF({ allowCrossOrg: e.target.checked })}
+            />
+            <span>อนุมัติข้ามสังกัดได้</span>
+          </label>
+        </label>
       </div>
 
       <div className="mt-5 flex justify-end gap-3">

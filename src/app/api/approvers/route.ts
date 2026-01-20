@@ -14,8 +14,10 @@ const normalizeEmail = (v?: string | null) => {
   const s = trimOrNull(v);
   return s ? s.toLowerCase() : null;
 };
-const isEmail = (s?: string | null) =>
-  !!s && /^\S+@\S+\.\S+$/.test(s);
+const isEmail = (s?: string | null) => !!s && /^\S+@\S+\.\S+$/.test(s);
+
+// ✅ เพิ่ม: แปลงค่า truthy ที่มากับ payload (true/"true"/1/"1")
+const toBool = (v: any) => v === true || v === "true" || v === 1 || v === "1";
 
 function genTempPassword(len = 10) {
   const chars =
@@ -34,7 +36,7 @@ export async function GET(req: NextRequest) {
   const divisionId = Number(searchParams.get("divisionId")) || undefined;
   const unitId = Number(searchParams.get("unitId")) || undefined;
 
-  // ถ้ามี id ให้ดึงรายตัว (พร้อม orgId, departmentId, divisionId, unitId)
+  // ถ้ามี id ให้ดึงรายตัว
   if (Number.isFinite(id) && id > 0) {
     const approver = await prisma.approver.findUnique({
       where: { id },
@@ -43,12 +45,17 @@ export async function GET(req: NextRequest) {
     return NextResponse.json(approver);
   }
 
-  // otherwise: รายชื่อทั้งหมดตาม org/department/division/unit
-  const where: any = {};
-  if (orgId) where.orgId = orgId;
-  if (departmentId) where.departmentId = departmentId;
-  if (divisionId) where.divisionId = divisionId;
-  if (unitId) where.unitId = unitId;
+  // ✅ ปรับ: ถ้ามี filter ให้รวม allowCrossOrg = true เสมอ
+  const scoped: any = {};
+  if (orgId) scoped.orgId = orgId;
+  if (departmentId) scoped.departmentId = departmentId;
+  if (divisionId) scoped.divisionId = divisionId;
+  if (unitId) scoped.unitId = unitId;
+
+  const hasScoped = Object.keys(scoped).length > 0;
+  const where: any = hasScoped
+    ? { OR: [scoped, { allowCrossOrg: true }] }
+    : {}; // ไม่มี filter -> คงพฤติกรรมเดิม (ได้ทั้งหมด)
 
   const items = await prisma.approver.findMany({
     where,
@@ -77,13 +84,16 @@ export async function POST(req: NextRequest) {
     department?: string;
     division?: string;
     unit?: string;
-    orgId?: number;
-    departmentId?: number;
-    divisionId?: number;
-    unitId?: number;
+    orgId?: number | null;
+    departmentId?: number | null;
+    divisionId?: number | null;
+    unitId?: number | null;
     level?: string;
     lineId?: string;
     email?: string;
+
+    // ✅ เพิ่ม
+    allowCrossOrg?: boolean | string | number;
   };
 
   const body = (await req.json().catch(() => ({}))) as Body;
@@ -126,6 +136,9 @@ export async function POST(req: NextRequest) {
           level: trimOrNull(body.level),
           lineId: trimOrNull(body.lineId),
           email: normalizeEmail(body.email),
+
+          // ✅ เพิ่ม
+          allowCrossOrg: toBool(body.allowCrossOrg),
         },
       });
 
@@ -135,7 +148,7 @@ export async function POST(req: NextRequest) {
         const existed = await tx.user.findUnique({ where: { email: approver.email } });
 
         if (!existed) {
-  // 👉 ใช้เลขบัตรประชาชนเป็นรหัสผ่านเริ่มต้น
+          // 👉 ใช้เลขบัตรประชาชนเป็นรหัสผ่านเริ่มต้น
           const rawPassword = approver.citizenId || "123456"; // fallback เผื่อไม่มี
           const passwordHash = await bcrypt.hash(String(rawPassword), 10);
 
@@ -201,13 +214,16 @@ export async function PUT(req: NextRequest) {
     department?: string;
     division?: string;
     unit?: string;
-    orgId?: number;
-    departmentId?: number;
-    divisionId?: number;
-    unitId?: number;
+    orgId?: number | null;
+    departmentId?: number | null;
+    divisionId?: number | null;
+    unitId?: number | null;
     level?: string;
     lineId?: string;
     email?: string;
+
+    // ✅ เพิ่ม
+    allowCrossOrg?: boolean | string | number;
   };
 
   const body = (await req.json().catch(() => ({}))) as Partial<Patch>;
@@ -223,18 +239,22 @@ export async function PUT(req: NextRequest) {
       const data: any = {};
       for (const [k, v] of Object.entries(body)) {
         if (v === undefined) continue;
+
         if (k === "email") data.email = normalizeEmail(v as string);
+        else if (k === "allowCrossOrg") data.allowCrossOrg = toBool(v);
         else if (typeof v === "string") data[k] = trimOrNull(v);
-        else if (["orgId", "departmentId", "divisionId", "unitId"].includes(k)) data[k] = typeof v === "number" ? v : null;
+        else if (["orgId", "departmentId", "divisionId", "unitId"].includes(k))
+          data[k] = typeof v === "number" ? v : null;
         else data[k] = v;
       }
 
       const approver = await tx.approver.update({ where: { id }, data });
 
       // sync user if email included
-      const effectiveEmail = typeof body.email !== "undefined"
-        ? normalizeEmail(body.email as string)
-        : approver.email;
+      const effectiveEmail =
+        typeof body.email !== "undefined"
+          ? normalizeEmail(body.email as string)
+          : approver.email;
 
       if (effectiveEmail) {
         const existed = await tx.user.findUnique({ where: { email: effectiveEmail } });

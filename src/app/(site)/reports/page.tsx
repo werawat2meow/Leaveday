@@ -21,7 +21,6 @@ type LeaveRequest = {
   hrConfirmed?: boolean; // HR ยืนยันแล้วหรือยัง
   approverName?: string; // ชื่อผู้อนุมัติ
 };
-
 /* ---------- Page ---------- */
 export default function HRConfirmRecheckPage() {
   const [hydrated, setHydrated] = useState(false);
