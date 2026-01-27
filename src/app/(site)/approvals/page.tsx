@@ -102,9 +102,25 @@ async function updateLeaveStatus(
     const response = await fetch(`/api/leaves/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
+      // ถ้า API ใช้ cookie session ให้เปิดอันนี้
+      // credentials: "include",
       body: JSON.stringify({ status, approverReason, approverSignature }),
     });
-    if (!response.ok) throw new Error("Failed to update leave status");
+
+    if (!response.ok) {
+      const bodyText = await response.text().catch(() => "");
+      console.error("PATCH /api/leaves failed:", {
+        id,
+        status,
+        httpStatus: response.status,
+        httpStatusText: response.statusText,
+        bodyText,
+      });
+      throw new Error(
+        `Failed to update leave status (${response.status}): ${bodyText || response.statusText}`
+      );
+    }
+
     return await response.json();
   } catch (error) {
     console.error("Error updating leave status:", error);
