@@ -92,40 +92,79 @@ async function fetchLeaveRequests(): Promise<LeaveRequest[]> {
   }
 }
 
+// async function updateLeaveStatus(
+//   id: number,
+//   status: LeaveStatus,
+//   approverReason?: string,
+//   approverSignature?: string
+// ) {
+//   try {
+//     const response = await fetch(`/api/leaves/${id}`, {
+//       method: "PATCH",
+//       headers: { "Content-Type": "application/json" },
+//       // ถ้า API ใช้ cookie session ให้เปิดอันนี้
+//       // credentials: "include",
+//       body: JSON.stringify({ status, approverReason, approverSignature }),
+//     });
+
+//     if (!response.ok) {
+//       const bodyText = await response.text().catch(() => "");
+//       console.error("PATCH /api/leaves failed:", {
+//         id,
+//         status,
+//         httpStatus: response.status,
+//         httpStatusText: response.statusText,
+//         bodyText,
+//       });
+//       throw new Error(
+//         `Failed to update leave status (${response.status}): ${bodyText || response.statusText}`
+//       );
+//     }
+
+//     return await response.json();
+//   } catch (error) {
+//     console.error("Error updating leave status:", error);
+//     throw error;
+//   }
+// }
+
 async function updateLeaveStatus(
   id: number,
   status: LeaveStatus,
   approverReason?: string,
   approverSignature?: string
 ) {
-  try {
-    const response = await fetch(`/api/leaves/${id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      // ถ้า API ใช้ cookie session ให้เปิดอันนี้
-      // credentials: "include",
-      body: JSON.stringify({ status, approverReason, approverSignature }),
+  const response = await fetch(`/api/leaves/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    // credentials: "include",
+    body: JSON.stringify({ status, approverReason, approverSignature }),
+  });
+
+  if (!response.ok) {
+    const ct = response.headers.get("content-type") || "";
+    const body =
+      ct.includes("application/json")
+        ? await response.json().catch(() => null)
+        : await response.text().catch(() => "");
+
+    const msg =
+      typeof body === "string"
+        ? body
+        : body?.message || body?.error || JSON.stringify(body) || response.statusText;
+
+    console.error("PATCH /api/leaves failed:", {
+      id,
+      status,
+      httpStatus: response.status,
+      httpStatusText: response.statusText,
+      body,
     });
 
-    if (!response.ok) {
-      const bodyText = await response.text().catch(() => "");
-      console.error("PATCH /api/leaves failed:", {
-        id,
-        status,
-        httpStatus: response.status,
-        httpStatusText: response.statusText,
-        bodyText,
-      });
-      throw new Error(
-        `Failed to update leave status (${response.status}): ${bodyText || response.statusText}`
-      );
-    }
-
-    return await response.json();
-  } catch (error) {
-    console.error("Error updating leave status:", error);
-    throw error;
+    throw new Error(msg);
   }
+
+  return await response.json();
 }
 
 /* ---------------- Page ---------------- */
@@ -350,10 +389,13 @@ export default function ApprovalsPage() {
       setApproverSignature(null);
       sigRef.current?.clear();
       setTimeout(() => setToast(null), 2000);
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error updating status:", error);
-      setToast({ type: "error", msg: "เกิดข้อผิดพลาดในการอัปเดตสถานะ" });
-      setTimeout(() => setToast(null), 2000);
+      setToast({
+        type: "error",
+        msg: error?.message || "เกิดข้อผิดพลาดในการอัปเดตสถานะ",
+      });
+      setTimeout(() => setToast(null), 4000);
     }
   }
   const approveIds = (ids: number[]) => updateStatus(ids, "APPROVED");
