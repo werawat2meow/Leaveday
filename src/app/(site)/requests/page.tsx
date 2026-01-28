@@ -1215,7 +1215,7 @@ export default function LeavePage() {
                           maternity: 0,
                           birthday: 0,
                           unpaid: 0,
-                          annualHolidays: leaveUsed?.ANNUAL_HOLIDAY ?? 0,
+                          annualHolidays: leaveUsed?.usedHolidayApprovedOnly ?? leaveUsed?.ANNUAL_HOLIDAY ?? 0,
                         },
                         remaining: {
                           vacation: 0,
@@ -1226,6 +1226,7 @@ export default function LeavePage() {
                           birthday: 0,
                           unpaid: 0,
                           annualHolidays:
+                            leaveUsed?.remainHolidayLeaveApprovedOnly ??
                             (myLeaveRights.holidayLeaveDays ?? 0) -
                             (leaveUsed?.ANNUAL_HOLIDAY ?? 0),
                         },

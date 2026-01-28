@@ -210,19 +210,19 @@ model LeaveRights {
   id                        Int      @id @default(autoincrement())
   employeeId                Int
   year                      Int
-    annualLeave               Int
-    carryForwardAnnual        Int      @default(0)
+    annualLeave               Decimal  @default(0.0) @db.Decimal(5,1)
+    carryForwardAnnual        Decimal  @default(0.0) @db.Decimal(5,1)
     carryForwardAnnualExpiry  DateTime?
-    holidayLeave              Int
-    carryForwardHoliday       Int      @default(0)
+    holidayLeave              Decimal  @default(0.0) @db.Decimal(5,1)
+    carryForwardHoliday       Decimal  @default(0.0) @db.Decimal(5,1)
     carryForwardHolidayExpiry DateTime?
-    vacationLeave             Int      @default(0)
-    businessLeave             Int      @default(0)
-    sickLeave                 Int      @default(0)
-    ordainLeave               Int      @default(0)
-    maternityLeave            Int      @default(0)
-    unpaidLeave               Int      @default(0)
-    birthdayLeave             Int      @default(0)
+    vacationLeave             Decimal  @default(0.0) @db.Decimal(5,1)
+    businessLeave             Decimal  @default(0.0) @db.Decimal(5,1)
+    sickLeave                 Decimal  @default(0.0) @db.Decimal(5,1)
+    ordainLeave               Decimal  @default(0.0) @db.Decimal(5,1)
+    maternityLeave            Decimal  @default(0.0) @db.Decimal(5,1)
+    unpaidLeave               Decimal  @default(0.0) @db.Decimal(5,1)
+    birthdayLeave             Decimal  @default(0.0) @db.Decimal(5,1)
   employee                  Employee @relation(fields: [employeeId], references: [id])
 
   @@unique([employeeId, year], name: "employeeId_year")

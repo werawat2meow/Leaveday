@@ -226,11 +226,17 @@ export async function GET(req: NextRequest) {
     }
 
     // ===== คงเหลือ: ใช้ LeaveRights เป็นฐาน (APPROVED ถูกหักไปแล้ว) แล้วกัน PENDING เพิ่มเติม =====
+    // ✅ เก็บ snapshot ก่อนกัน PENDING (approved-only)
+    const annualCfRemainApprovedOnly = cfAnnualActiveNow ? cfAnnualTotal : 0;
+    const annualCurrentRemainApprovedOnly = Number(rights?.vacationLeave ?? 0);
+    const holidayCfRemainApprovedOnly = cfHolidayActiveNow ? cfHolidayTotal : 0;
+    const holidayCurrentRemainApprovedOnly = Number(rights?.holidayLeave ?? 0);
+
     // cfRemainForUi: ใช้คำนวณยอดยกคงเหลือที่ "ใช้ได้วันนี้" (ถ้าวันนี้หมดอายุ จะโชว์ 0)
-    let annualCfRemainForUi = cfAnnualActiveNow ? cfAnnualTotal : 0;
-    let annualCurrentRemain = Number(rights?.vacationLeave ?? 0);
-    let holidayCfRemainForUi = cfHolidayActiveNow ? cfHolidayTotal : 0;
-    let holidayCurrentRemain = Number(rights?.holidayLeave ?? 0);
+    let annualCfRemainForUi = annualCfRemainApprovedOnly;
+    let annualCurrentRemain = annualCurrentRemainApprovedOnly;
+    let holidayCfRemainForUi = holidayCfRemainApprovedOnly;
+    let holidayCurrentRemain = holidayCurrentRemainApprovedOnly;
 
     // cfPoolForReservation: ใช้ backfill reservation ของใบลาเก่าที่ไม่มี reservation
     // เพื่อไม่ให้การแก้ expiry ใน DB ทำให้ย้ายการกันสิทธิ์ย้อนหลัง
@@ -319,6 +325,21 @@ export async function GET(req: NextRequest) {
       : 0;
     const remainHolidayLeave = Math.max(0, holidayCurrentRemain);
 
+    // ✅ คำนวณคงเหลือแบบ "ไม่รวม PENDING" (approved-only)
+    const remainCarryForwardAnnualApprovedOnly = cfAnnualActiveNow
+      ? Math.max(0, annualCfRemainApprovedOnly)
+      : 0;
+    const remainVacationLeaveApprovedOnly = Math.max(0, annualCurrentRemainApprovedOnly);
+    const remainCarryForwardHolidayApprovedOnly = cfHolidayActiveNow
+      ? Math.max(0, holidayCfRemainApprovedOnly)
+      : 0;
+    const remainHolidayLeaveApprovedOnly = Math.max(0, holidayCurrentRemainApprovedOnly);
+
+    const totalRemainAnnualApprovedOnly =
+      remainCarryForwardAnnualApprovedOnly + remainVacationLeaveApprovedOnly;
+    const totalRemainHolidayApprovedOnly =
+      remainCarryForwardHolidayApprovedOnly + remainHolidayLeaveApprovedOnly;
+
     // used-from-current (สำหรับหลอดด้านบน) = สิทธิ์ทั้งปี - คงเหลือ (หลังกัน PENDING)
     const entitledVacation = Number(
       template?.vacationLeaveDays ?? rights?.annualLeave ?? 0
@@ -329,6 +350,10 @@ export async function GET(req: NextRequest) {
       0,
       entitledHoliday - remainHolidayLeave
     );
+
+    // ✅ used แบบไม่รวม PENDING (approved-only)
+    const usedAnnualApprovedOnly = Math.max(0, entitledVacation - remainVacationLeaveApprovedOnly);
+    const usedHolidayApprovedOnly = Math.max(0, entitledHoliday - remainHolidayLeaveApprovedOnly);
 
     // totals คงเหลือ = (ยอดยกที่ยังใช้ได้วันนี้) + (สิทธิ์ปีนี้ที่เหลือหลังกัน PENDING)
     const totalRemainAnnual = remainCarryForwardAnnual + remainVacationLeave;
@@ -350,6 +375,16 @@ export async function GET(req: NextRequest) {
         remainHolidayLeave,
         totalRemainAnnual,
         totalRemainHoliday,
+
+        // ✅ ฟิลด์เพิ่มสำหรับ UI (ไม่รวม PENDING)
+        remainCarryForwardAnnualApprovedOnly,
+        remainVacationLeaveApprovedOnly,
+        remainCarryForwardHolidayApprovedOnly,
+        remainHolidayLeaveApprovedOnly,
+        totalRemainAnnualApprovedOnly,
+        totalRemainHolidayApprovedOnly,
+        usedAnnualApprovedOnly,
+        usedHolidayApprovedOnly,
       },
     });
   } catch (error) {

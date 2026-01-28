@@ -58,20 +58,38 @@ export default function EmployeeLeaveHistoryModal({
   const [endDate, setEndDate] = React.useState("");
 
   React.useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      // Reset เมื่อปิด modal
+      setLeaves([]);
+      setStartDate("");
+      setEndDate("");
+      return;
+    }
+
+    let cancelled = false;
     setLoading(true);
+
     const url = department
       ? `/api/leaves/all?department=${encodeURIComponent(department)}`
       : "/api/leaves/all";
+
     fetch(url)
       .then((res) => res.json())
       .then((json) => {
-        // Debug: log raw API data
+        if (cancelled) return;
         console.log("[Modal API] raw data:", json.data);
         setLeaves(json.data || []);
         setLoading(false);
       })
-      .catch(() => setLoading(false));
+      .catch((err) => {
+        if (cancelled) return;
+        console.error("[Modal API] error:", err);
+        setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, [open, department]);
 
   React.useEffect(() => {
