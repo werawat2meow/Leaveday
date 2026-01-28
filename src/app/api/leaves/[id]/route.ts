@@ -383,7 +383,7 @@ export async function PATCH(
 
               if (
                 leave.kind === "ANNUAL" &&
-                rights.carryForwardAnnual > 0 &&
+                Number(rights.carryForwardAnnual) > 0 &&
                 rights.carryForwardAnnualExpiry &&
                 new Date(rights.carryForwardAnnualExpiry) > now &&
                 seg.start < new Date(rights.carryForwardAnnualExpiry)
@@ -403,7 +403,7 @@ export async function PATCH(
 
               if (
                 leave.kind === "ANNUAL_HOLIDAY" &&
-                rights.carryForwardHoliday > 0 &&
+                Number(rights.carryForwardHoliday) > 0 &&
                 rights.carryForwardHolidayExpiry &&
                 new Date(rights.carryForwardHolidayExpiry) > now &&
                 seg.start < new Date(rights.carryForwardHolidayExpiry)
@@ -422,7 +422,7 @@ export async function PATCH(
               }
 
               if (remain > 0) {
-                if (leave.kind === "ANNUAL" && rights.vacationLeave > 0) {
+                if (leave.kind === "ANNUAL" && Number(rights.vacationLeave) > 0) {
                   const useCurrent = Math.min(
                     remain,
                     Number(rights.vacationLeave)
@@ -439,7 +439,7 @@ export async function PATCH(
                 }
                 if (
                   leave.kind === "ANNUAL_HOLIDAY" &&
-                  rights.holidayLeave > 0
+                  Number(rights.holidayLeave) > 0
                 ) {
                   const useCurrent = Math.min(
                     remain,
