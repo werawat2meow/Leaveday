@@ -1428,7 +1428,9 @@ export default function LeavePage() {
                   )}
                   {/* แสดงยอดคงเหลือรวมตาม business logic ใหม่ */}
                   <div className="mt-2 text-sm text-cyan-400">
-                    พักร้อนคงเหลือ: {leaveUsed?.totalRemainAnnual ?? "-"} วัน
+                    พักร้อนคงเหลือ: {leaveUsed?.totalRemainAnnual !== undefined
+                      ? Number(leaveUsed.totalRemainAnnual).toFixed(1)
+                      : "-"} วัน
                     {leaveUsed?.remainCarryForwardAnnual > 0
                       ? " (ยอดยก)"
                       : leaveUsed?.remainVacationLeave > 0
@@ -1436,8 +1438,9 @@ export default function LeavePage() {
                       : ""}
                   </div>
                   <div className="mt-2 text-sm text-cyan-400">
-                    วันหยุดพิเศษคงเหลือ: {leaveUsed?.totalRemainHoliday ?? "-"}{" "}
-                    วัน
+                    วันหยุดพิเศษคงเหลือ: {leaveUsed?.totalRemainHoliday !== undefined
+                      ? Number(leaveUsed.totalRemainHoliday).toFixed(1)
+                      : "-"} วัน
                     {leaveUsed?.remainCarryForwardHoliday > 0
                       ? " (ยอดยก)"
                       : leaveUsed?.remainHolidayLeave > 0
