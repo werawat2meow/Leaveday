@@ -35,17 +35,22 @@ export async function GET() {
             );
         }
 
-        //filter ตามสังกัดพนักงาน
-        const where: any = {};
+        //filter ตามสังกัดพนักงาน แต่รวม allowCrossOrg = true
+        const scoped: any = {};
 
         if (employee.org) {
-        where.org = { equals: employee.org, mode: "insensitive" };
+          scoped.org = { equals: employee.org, mode: "insensitive" };
         }
 
         // (ยังไม่ใช้ department ไปก่อน ช่วงนี้ข้อมูลยังไม่ตรง)
         // if (employee.department) {
-        //   where.department = { equals: employee.department, mode: "insensitive" };
+        //   scoped.department = { equals: employee.department, mode: "insensitive" };
         // }
+
+        const hasScoped = Object.keys(scoped).length > 0;
+        const where: any = hasScoped
+          ? { OR: [scoped, { allowCrossOrg: true }] }
+          : {}; // ไม่มี filter -> คงพฤติกรรมเดิม (ได้ทั้งหมด)
 
         const approvers = await prisma.approver.findMany({
         where,
