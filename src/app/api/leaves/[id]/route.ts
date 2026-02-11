@@ -898,7 +898,9 @@ export async function PATCH(
           current: Number(useCurrentNew),
         };
       } else {
-        const entitled = (() => {
+        // For non-annual kinds: LeaveRights.<field> is already decremented on APPROVED.
+        // So we only reserve PENDING leaves against the current remaining balance.
+        const currentApprovedRemain = (() => {
           switch (kind as string) {
             case "BUSINESS":
               return Number((rights as any)?.businessLeave ?? 0);
@@ -917,9 +919,9 @@ export async function PATCH(
           }
         })();
 
-        let usedApproved = 0;
         let usedPending = 0;
         for (const l of leavesInYear) {
+          if (l.status !== "PENDING") continue;
           const d = overlapDaysInYear({
             leaveStart: new Date(l.startDate),
             leaveEnd: new Date(l.endDate),
@@ -928,14 +930,13 @@ export async function PATCH(
             holidays: holidaysY,
             weeklyHoliday: leave.user.employee.weeklyHoliday,
           });
-          if (l.status === "APPROVED") usedApproved += d;
-          if (l.status === "PENDING") usedPending += d;
+          usedPending += d;
         }
 
-        const remain = entitled - usedApproved - usedPending;
-        if (reqY > remain) {
+        const available = currentApprovedRemain - usedPending;
+        if (reqY > available) {
           return NextResponse.json(
-            { error: `สิทธิ์คงเหลือไม่พอ (ปี ${y} เหลือ ${remain} วัน)` },
+            { error: `สิทธิ์คงเหลือไม่พอ (ปี ${y} เหลือ ${available} วัน)` },
             { status: 400 }
           );
         }
