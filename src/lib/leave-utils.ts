@@ -2,6 +2,16 @@ export type HalfSession = "FULL" | "AM" | "PM";
 
 export function normalizeSession(label?: string): HalfSession {
   const s = (label || "").toLowerCase();
+  // Support enum-like inputs too (from DB) e.g. "AM" | "PM" | "FULL"
+  if (s === "am") return "AM";
+  if (s === "pm") return "PM";
+  if (s === "full") return "FULL";
+
+  // Support Thai labels
+  if (s.includes("เช้า")) return "AM";
+  if (s.includes("บ่าย")) return "PM";
+  if (s.includes("เต็มวัน")) return "FULL";
+
   if (s.includes("morning")) return "AM";
   if (s.includes("afternoon")) return "PM";
   return "FULL";

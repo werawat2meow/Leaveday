@@ -605,6 +605,7 @@ export default function ApprovalsPage() {
               <Th>ชื่อ - สกุล</Th>
               <Th className="text-center">ประเภทลา</Th>
               <Th className="text-center">รายละเอียดการลา</Th>
+              <Th className="text-center">วันที่แจ้งลา</Th>
               <Th className="text-center">Level P</Th>
               <Th className="text-center">สถานะ</Th>
               <Th className="text-center pr-3">Approve</Th>
@@ -614,7 +615,7 @@ export default function ApprovalsPage() {
             {loading ? (
               <tr>
                 <td
-                  colSpan={8}
+                  colSpan={9}
                   className="px-4 py-6 text-center text-slate-500 dark:text-slate-400"
                 >
                   กำลังโหลดข้อมูล...
@@ -623,7 +624,7 @@ export default function ApprovalsPage() {
             ) : filtered.length === 0 ? (
               <tr>
                 <td
-                  colSpan={8}
+                  colSpan={9}
                   className="px-4 py-6 text-center text-slate-500 dark:text-slate-400"
                 >
                   ไม่พบรายการ
@@ -676,6 +677,7 @@ export default function ApprovalsPage() {
                         {r.reason}
                       </div>
                     </Td>
+                    <Td className="text-center">{fmtDate(r.createdAt)}</Td>
                     <Td className=" text-center">{employee?.levelP || "-"}</Td>
                     <Td className=" text-center">
                       <StatusBadge status={r.status} />
@@ -769,6 +771,10 @@ export default function ApprovalsPage() {
                         value={`${fmtDate(selected.startDate)} - ${fmtDate(
                           selected.endDate
                         )}`}
+                      />
+                      <ReadField
+                        label="วันที่แจ้งลา"
+                        value={fmtDate(selected.createdAt)}
                       />
                       <ReadField
                         label="สถานะ"

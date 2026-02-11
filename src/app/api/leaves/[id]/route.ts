@@ -15,6 +15,20 @@ import { LeaveStatus } from "@prisma/client";
 import { getServerSession } from "next-auth";
 import { NextRequest, NextResponse } from "next/server";
 
+function toNum(x: any) {
+  if (typeof x === "number" && Number.isFinite(x)) return x;
+  if (typeof x === "string" && x.trim() !== "") {
+    const n = Number(x);
+    return Number.isFinite(n) ? n : 0;
+  }
+  if (x && typeof x === "object" && typeof x.toNumber === "function") {
+    const n = x.toNumber();
+    return typeof n === "number" && Number.isFinite(n) ? n : 0;
+  }
+  const n = Number(x);
+  return Number.isFinite(n) ? n : 0;
+}
+
 function yearStart(y: number) {
   return new Date(`${y}-01-01T00:00:00.000Z`);
 }
@@ -198,9 +212,11 @@ export async function PATCH(
           select: {
             id: true,
             kind: true,
+            status: true,
             startDate: true,
             endDate: true,
             session: true,
+            requestedDays: true,
             reservation: true,
             user: {
               select: {
@@ -260,15 +276,33 @@ export async function PATCH(
           },
         });
 
-        // Only decrement rights on APPROVED for Annual / Annual Holiday.
-        if (
-          status === "APPROVED" &&
-          (leave.kind === "ANNUAL" || leave.kind === "ANNUAL_HOLIDAY")
-        ) {
+        // Decrement rights only when transitioning to APPROVED (idempotent).
+        if (nextStatus === "APPROVED" && leave.status !== "APPROVED") {
           const employee = leave.user.employee;
           if (employee) {
             const employeeId = employee.id;
             const now = new Date();
+
+            const quotaFieldForKind = (kind: typeof leave.kind) => {
+              switch (kind) {
+                case "BUSINESS":
+                  return "businessLeave" as const;
+                case "SICK":
+                  return "sickLeave" as const;
+                case "ORDAIN":
+                  return "ordainLeave" as const;
+                case "MATERNITY":
+                  return "maternityLeave" as const;
+                case "UNPAID":
+                  return "unpaidLeave" as const;
+                case "BIRTHDAY":
+                  return "birthdayLeave" as const;
+                default:
+                  return null;
+              }
+            };
+
+            if (leave.kind === "ANNUAL" || leave.kind === "ANNUAL_HOLIDAY") {
 
             // Prefer reservation snapshot so APPROVED matches what PENDING reserved.
             const res = leave.reservation as
@@ -361,7 +395,7 @@ export async function PATCH(
             for (const seg of segs) {
               const holidays = holidaysByYear[seg.year] ?? new Set<string>();
               const session: HalfSession = seg.includesOriginalStart
-                ? normalizeSession(leave.session ?? undefined)
+                ? ((leave.session as HalfSession | null) ?? "FULL")
                 : "FULL";
 
               const daysInYear = countBusinessDays(
@@ -454,6 +488,58 @@ export async function PATCH(
                     });
                     remain -= useCurrent;
                   }
+                }
+              }
+            }
+            } else {
+              const field = quotaFieldForKind(leave.kind);
+              if (field) {
+                const start = new Date(leave.startDate);
+                const end = new Date(leave.endDate);
+
+                // If the leave is entirely within one year, prefer stored requestedDays
+                // so UI and DB use the same number.
+                if (
+                  start.getFullYear() === end.getFullYear() &&
+                  toNum(leave.requestedDays) > 0
+                ) {
+                  const y = start.getFullYear();
+                  await ensureLeaveRightsForYear(employeeId, y);
+                  await tx.leaveRights.update({
+                    where: { employeeId_year: { employeeId, year: y } },
+                    data: { [field]: { decrement: toNum(leave.requestedDays) } } as any,
+                  });
+                  return updatedLeave;
+                }
+
+                // Otherwise, compute by year segments.
+                const segs = splitRangeByYear(start, end);
+                const years = Array.from(new Set(segs.map((s) => s.year)));
+                const holidaysByYear: Record<number, Set<string>> = {};
+                for (const y of years) {
+                  holidaysByYear[y] = await holidaySetForYear(y);
+                }
+
+                for (const seg of segs) {
+                  const holidays = holidaysByYear[seg.year] ?? new Set<string>();
+                  const session: HalfSession = seg.includesOriginalStart
+                    ? ((leave.session as HalfSession | null) ?? "FULL")
+                    : "FULL";
+
+                  const daysInYear = countBusinessDays(
+                    seg.start,
+                    seg.end,
+                    session,
+                    holidays,
+                    employee.weeklyHoliday ?? undefined
+                  );
+                  if (daysInYear <= 0) continue;
+
+                  await ensureLeaveRightsForYear(employeeId, seg.year);
+                  await tx.leaveRights.update({
+                    where: { employeeId_year: { employeeId, year: seg.year } },
+                    data: { [field]: { decrement: Number(daysInYear) } } as any,
+                  });
                 }
               }
             }
@@ -635,6 +721,7 @@ export async function PATCH(
 
   if (isQuotaKind) {
     const now = new Date();
+    const todayKey = ymd(now);
     const employeeId = leave.user.employee.id;
 
     for (const y of years) {
@@ -685,11 +772,12 @@ export async function PATCH(
 
         const cfActiveNow = !!(cfTotal > 0 && cfExpiry && cfExpiry > now);
         let cfRemain = cfActiveNow ? cfTotal : 0;
-        let currentRemain = Number(
+        const currentApprovedRemain = Number(
           kind === "ANNUAL"
             ? (rights as any)?.vacationLeave ?? 0
             : (rights as any)?.holidayLeave ?? 0
         );
+        let currentRemain = currentApprovedRemain;
 
         const segStartInYear =
           segments.find((s) => s.year === y)?.start ?? start;
@@ -713,6 +801,73 @@ export async function PATCH(
             remain -= useCF;
           }
           if (remain > 0) currentRemain -= remain;
+        }
+
+        // ✅ NEW: Annual Holiday (ปีนี้) ใช้ได้เฉพาะวันหยุดที่ประกาศ "ผ่านมาแล้ว" (ไม่ให้ยืมอนาคต)
+        if (kind === "ANNUAL_HOLIDAY") {
+          const declared = holidaysY.size;
+          const passed = Array.from(holidaysY).filter((d) => d <= todayKey)
+            .length;
+          const accrued = Math.min(declared, passed);
+
+          const usedApprovedFromCurrent = Math.max(
+            0,
+            declared - Math.max(0, currentApprovedRemain)
+          );
+          const usedPendingFromCurrent = Math.max(
+            0,
+            Math.max(0, currentApprovedRemain) - Math.max(0, currentRemain)
+          );
+          const usedFromCurrentInclPending =
+            usedApprovedFromCurrent + usedPendingFromCurrent;
+
+          const currentAccruedRemainRaw = Math.max(
+            0,
+            accrued - usedFromCurrentInclPending
+          );
+          const currentAccruedRemain = Math.min(
+            Math.max(0, currentRemain),
+            currentAccruedRemainRaw
+          );
+          const availableNow =
+            currentAccruedRemain + (cfActiveNow ? Math.max(0, cfRemain) : 0);
+
+          if (reqY > availableNow) {
+            return NextResponse.json(
+              {
+                error: `Annual Holiday ใช้ได้ไม่พอ ณ ตอนนี้ (ปี ${y} ใช้ได้ ${availableNow} วัน: ยอดยก ${cfActiveNow ? Math.max(0, cfRemain) : 0} + ปีนี้ที่ปลดล็อคแล้วคงเหลือ ${currentAccruedRemain})`,
+              },
+              { status: 400 }
+            );
+          }
+
+          let remainNew = reqY;
+          let useCfNew = 0;
+          if (
+            cfRemain > 0 &&
+            cfExpiry &&
+            cfActiveNow &&
+            segStartInYear < cfExpiry
+          ) {
+            useCfNew = Math.min(cfRemain, remainNew);
+            remainNew -= useCfNew;
+          }
+
+          if (remainNew > currentAccruedRemain) {
+            return NextResponse.json(
+              {
+                error:
+                  "Annual Holiday ปีนี้ยังปลดล็อคไม่พอ (ไม่สามารถใช้สิทธิ์อนาคตได้)",
+              },
+              { status: 400 }
+            );
+          }
+
+          reservation[String(y)] = {
+            cf: Number(useCfNew),
+            current: Number(remainNew),
+          };
+          continue;
         }
 
         const available =

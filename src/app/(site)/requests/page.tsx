@@ -131,6 +131,15 @@ type MeResponse = {
 } | null;
 
 export default function LeavePage() {
+  function formatThaiDateDMY(input: string | Date) {
+    const d = input instanceof Date ? input : new Date(input);
+    if (isNaN(+d)) return String(input);
+    const day = String(d.getDate()).padStart(2, "0");
+    const month = String(d.getMonth() + 1).padStart(2, "0");
+    const year = d.getFullYear() + 543;
+    return `${day}/${month}/${year}`;
+  }
+
   // ประกาศ state me ก่อน useEffect leaveUsed
   const [me, setMe] = useState<MeResponse>(null);
   const [loadingMe, setLoadingMe] = useState(false);
@@ -210,6 +219,7 @@ export default function LeavePage() {
     }
     return filtered;
   }
+  
 
   useEffect(() => {
     if (!openHistory) return;
@@ -374,8 +384,19 @@ export default function LeavePage() {
         return "อายุงานยังไม่ครบ 1 ปี ไม่สามารถลาประจำปีได้";
       }
     }
+
+    // Annual Holiday: ใช้ได้เฉพาะยอดยก + สิทธิ์ปีนี้ที่ปลดล็อคตามวันหยุดที่ผ่านแล้ว
+    if (leave.leaveType === "ANNUAL_HOLIDAY" && leaveUsed) {
+      const availableNow = Number(
+        leaveUsed?.holidayAvailableNow ?? leaveUsed?.totalRemainHoliday ?? 0
+      );
+      if (availableNow < totalDays) {
+        return `Annual Holiday ใช้ได้ไม่พอ ณ ตอนนี้ (ใช้ได้ ${availableNow} วัน)`;
+      }
+    }
+
     // เช็คสิทธิวันลาคงเหลือ
-    if (leave.leaveType && leaveUsed) {
+    if (leave.leaveType && leaveUsed && leave.leaveType !== "ANNUAL_HOLIDAY") {
       const used = leaveUsed[leave.leaveType] ?? 0;
       const rightsField = getLeaveRightsField(leave.leaveType);
       const rights = myLeaveRights ? myLeaveRights[rightsField] ?? 0 : 0;
@@ -384,6 +405,33 @@ export default function LeavePage() {
       }
     }
     return "";
+  }
+
+  // ใช้สำหรับโชว์บนการ์ดสิทธิ: นับเฉพาะ APPROVED (ไม่รวม PENDING)
+  function usedApprovedOnly(kind: LeaveKind) {
+    const byKind = leaveUsed?.usedApprovedOnlyByKind as
+      | Record<string, number>
+      | undefined;
+
+    if (kind === "ANNUAL") {
+      return Number(
+        leaveUsed?.usedAnnualApprovedOnly ?? byKind?.ANNUAL ?? 0
+      );
+    }
+    if (kind === "ANNUAL_HOLIDAY") {
+      return Number(
+        leaveUsed?.usedHolidayApprovedOnly ?? byKind?.ANNUAL_HOLIDAY ?? 0
+      );
+    }
+    return Number(byKind?.[kind] ?? 0);
+  }
+
+  // ใช้สำหรับโชว์ "คงเหลือ" บนการ์ด: prefer DB-backed LeaveRights (APPROVED ถูกหักแล้ว)
+  function remainingFromDb(kind: LeaveKind) {
+    const remaining = (leaveUsed?.remainingByKind as
+      | Record<string, number>
+      | undefined)?.[kind];
+    return remaining === undefined ? null : Number(remaining);
   }
 
   function getSessionLabel(s?: LeaveForm["session"]) {
@@ -1093,7 +1141,7 @@ export default function LeavePage() {
                         used: {
                           vacation: 0,
                           business: 0,
-                          sick: leaveUsed?.SICK ?? 0,
+                          sick: usedApprovedOnly("SICK"),
                           ordainDays: 0,
                           maternity: 0,
                           birthday: 0,
@@ -1104,8 +1152,9 @@ export default function LeavePage() {
                           vacation: 0,
                           business: 0,
                           sick:
+                            remainingFromDb("SICK") ??
                             (myLeaveRights.sickLeaveDays ?? 0) -
-                            (leaveUsed?.SICK ?? 0),
+                              usedApprovedOnly("SICK"),
                           ordainDays: 0,
                           maternity: 0,
                           birthday: 0,
@@ -1131,7 +1180,7 @@ export default function LeavePage() {
                         },
                         used: {
                           vacation: 0,
-                          business: leaveUsed?.BUSINESS ?? 0,
+                          business: usedApprovedOnly("BUSINESS"),
                           sick: 0,
                           ordainDays: 0,
                           maternity: 0,
@@ -1142,8 +1191,9 @@ export default function LeavePage() {
                         remaining: {
                           vacation: 0,
                           business:
+                            remainingFromDb("BUSINESS") ??
                             (myLeaveRights.businessLeaveDays ?? 0) -
-                            (leaveUsed?.BUSINESS ?? 0),
+                              usedApprovedOnly("BUSINESS"),
                           sick: 0,
                           ordainDays: 0,
                           maternity: 0,
@@ -1169,7 +1219,7 @@ export default function LeavePage() {
                           annualHolidays: 0,
                         },
                         used: {
-                          vacation: leaveUsed?.ANNUAL ?? 0,
+                          vacation: usedApprovedOnly("ANNUAL"),
                           business: 0,
                           sick: 0,
                           ordainDays: 0,
@@ -1181,7 +1231,7 @@ export default function LeavePage() {
                         remaining: {
                           vacation:
                             (myLeaveRights.vacationLeaveDays ?? 0) -
-                            (leaveUsed?.ANNUAL ?? 0),
+                            usedApprovedOnly("ANNUAL"),
                           business: 0,
                           sick: 0,
                           ordainDays: 0,
@@ -1215,7 +1265,7 @@ export default function LeavePage() {
                           maternity: 0,
                           birthday: 0,
                           unpaid: 0,
-                          annualHolidays: leaveUsed?.usedHolidayApprovedOnly ?? leaveUsed?.ANNUAL_HOLIDAY ?? 0,
+                          annualHolidays: usedApprovedOnly("ANNUAL_HOLIDAY"),
                         },
                         remaining: {
                           vacation: 0,
@@ -1226,6 +1276,7 @@ export default function LeavePage() {
                           birthday: 0,
                           unpaid: 0,
                           annualHolidays:
+                            leaveUsed?.holidayAvailableNowApprovedOnly ??
                             leaveUsed?.remainHolidayLeaveApprovedOnly ??
                             (myLeaveRights.holidayLeaveDays ?? 0) -
                             (leaveUsed?.ANNUAL_HOLIDAY ?? 0),
@@ -1254,7 +1305,7 @@ export default function LeavePage() {
                           ordainDays: 0,
                           maternity: 0,
                           birthday: 0,
-                          unpaid: leaveUsed?.UNPAID ?? 0,
+                          unpaid: usedApprovedOnly("UNPAID"),
                           annualHolidays: 0,
                         },
                         remaining: {
@@ -1265,8 +1316,9 @@ export default function LeavePage() {
                           maternity: 0,
                           birthday: 0,
                           unpaid:
+                            remainingFromDb("UNPAID") ??
                             (myLeaveRights.unpaidLeaveDays ?? 0) -
-                            (leaveUsed?.UNPAID ?? 0),
+                              usedApprovedOnly("UNPAID"),
                           annualHolidays: 0,
                         },
                       }}
@@ -1292,7 +1344,7 @@ export default function LeavePage() {
                           sick: 0,
                           ordainDays: 0,
                           maternity: 0,
-                          birthday: leaveUsed?.BIRTHDAY ?? 0,
+                          birthday: usedApprovedOnly("BIRTHDAY"),
                           unpaid: 0,
                           annualHolidays: 0,
                         },
@@ -1303,8 +1355,9 @@ export default function LeavePage() {
                           ordainDays: 0,
                           maternity: 0,
                           birthday:
+                            remainingFromDb("BIRTHDAY") ??
                             (myLeaveRights.birthdayLeaveDays ?? 0) -
-                            (leaveUsed?.BIRTHDAY ?? 0),
+                              usedApprovedOnly("BIRTHDAY"),
                           unpaid: 0,
                           annualHolidays: 0,
                         },
@@ -1330,7 +1383,7 @@ export default function LeavePage() {
                             vacation: 0,
                             business: 0,
                             sick: 0,
-                            ordainDays: leaveUsed?.ORDAIN ?? 0,
+                            ordainDays: usedApprovedOnly("ORDAIN"),
                             maternity: 0,
                             birthday: 0,
                             unpaid: 0,
@@ -1341,8 +1394,9 @@ export default function LeavePage() {
                             business: 0,
                             sick: 0,
                             ordainDays:
+                              remainingFromDb("ORDAIN") ??
                               (myLeaveRights.ordainLeaveDays ?? 0) -
-                              (leaveUsed?.ORDAIN ?? 0),
+                                usedApprovedOnly("ORDAIN"),
                             maternity: 0,
                             birthday: 0,
                             unpaid: 0,
@@ -1372,7 +1426,7 @@ export default function LeavePage() {
                             business: 0,
                             sick: 0,
                             ordainDays: 0,
-                            maternity: leaveUsed?.MATERNITY ?? 0,
+                            maternity: usedApprovedOnly("MATERNITY"),
                             birthday: 0,
                             unpaid: 0,
                             annualHolidays: 0,
@@ -1383,8 +1437,9 @@ export default function LeavePage() {
                             sick: 0,
                             ordainDays: 0,
                             maternity:
+                              remainingFromDb("MATERNITY") ??
                               (myLeaveRights.maternityLeaveDays ?? 0) -
-                              (leaveUsed?.MATERNITY ?? 0),
+                                usedApprovedOnly("MATERNITY"),
                             birthday: 0,
                             unpaid: 0,
                             annualHolidays: 0,
@@ -1402,9 +1457,7 @@ export default function LeavePage() {
                         <>
                           {" "}
                           (หมดอายุ:{" "}
-                          {new Date(
-                            leaveUsed.carryForwardAnnualExpiry
-                          ).toLocaleDateString()}
+                          {formatThaiDateDMY(leaveUsed.carryForwardAnnualExpiry)}
                           )
                         </>
                       )}
@@ -1418,9 +1471,7 @@ export default function LeavePage() {
                         <>
                           {" "}
                           (หมดอายุ:{" "}
-                          {new Date(
-                            leaveUsed.carryForwardHolidayExpiry
-                          ).toLocaleDateString()}
+                          {formatThaiDateDMY(leaveUsed.carryForwardHolidayExpiry)}
                           )
                         </>
                       )}
@@ -1438,15 +1489,23 @@ export default function LeavePage() {
                       : ""}
                   </div>
                   <div className="mt-2 text-sm text-cyan-400">
-                    วันหยุดพิเศษคงเหลือ: {leaveUsed?.totalRemainHoliday !== undefined
+                    วันหยุดพิเศษคงเหลือ: {leaveUsed?.holidayAvailableNow !== undefined
+                      ? Number(leaveUsed.holidayAvailableNow).toFixed(1)
+                      : leaveUsed?.totalRemainHoliday !== undefined
                       ? Number(leaveUsed.totalRemainHoliday).toFixed(1)
                       : "-"} วัน
                     {leaveUsed?.remainCarryForwardHoliday > 0
                       ? " (ยอดยก)"
-                      : leaveUsed?.remainHolidayLeave > 0
-                      ? " (สิทธิ์ปีนี้)"
+                      : leaveUsed?.holidayCurrentAccruedRemain > 0
+                      ? " (ปลดล็อคแล้วปีนี้)"
                       : ""}
                   </div>
+
+                  {leaveUsed?.holidayAccruedThisYear !== undefined && (
+                    <div className="mt-1 text-xs text-[var(--muted)]">
+                      Holiday ปีนี้ปลดล็อคแล้ว: {leaveUsed.holidayAccruedThisYear} วัน (จากวันหยุดที่ประกาศผ่านมาแล้ว)
+                    </div>
+                  )}
                 </>
               ) : (
                 <p className="text-sm text-[var(--muted)]">

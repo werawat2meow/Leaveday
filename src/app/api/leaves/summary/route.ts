@@ -101,6 +101,7 @@ export async function GET(req: NextRequest) {
     }
 
     const now = new Date();
+    const todayKey = now.toISOString().slice(0, 10);
 
     // ปีปัจจุบัน (หรือจะรับจาก query ก็ได้)
     const year = new Date().getFullYear();
@@ -223,6 +224,23 @@ export async function GET(req: NextRequest) {
     for (const l of overlapLeaves) {
       const d = daysInThisYear(l);
       summary[l.kind] = (summary[l.kind] ?? 0) + d;
+    }
+
+    // ✅ แยกยอดใช้แบบ APPROVED-only และยอดที่ยัง PENDING (เพื่อให้ UI แสดงสม่ำเสมอทุกประเภท)
+    const usedApprovedOnlyByKind: Record<string, number> = {};
+    const usedPendingByKind: Record<string, number> = {};
+    for (const kind of kinds) {
+      usedApprovedOnlyByKind[kind] = 0;
+      usedPendingByKind[kind] = 0;
+    }
+    for (const l of overlapLeaves) {
+      const d = daysInThisYear(l);
+      if (l.status === "APPROVED") {
+        usedApprovedOnlyByKind[l.kind] = (usedApprovedOnlyByKind[l.kind] ?? 0) + d;
+      }
+      if (l.status === "PENDING") {
+        usedPendingByKind[l.kind] = (usedPendingByKind[l.kind] ?? 0) + d;
+      }
     }
 
     // ===== คงเหลือ: ใช้ LeaveRights เป็นฐาน (APPROVED ถูกหักไปแล้ว) แล้วกัน PENDING เพิ่มเติม =====
@@ -355,14 +373,72 @@ export async function GET(req: NextRequest) {
     const usedAnnualApprovedOnly = Math.max(0, entitledVacation - remainVacationLeaveApprovedOnly);
     const usedHolidayApprovedOnly = Math.max(0, entitledHoliday - remainHolidayLeaveApprovedOnly);
 
+    // ✅ ทำให้ annual/holiday สอดคล้องกับวิธีคำนวณเดิม (อิง LeaveRights balances)
+    usedApprovedOnlyByKind["ANNUAL"] = usedAnnualApprovedOnly;
+    usedApprovedOnlyByKind["ANNUAL_HOLIDAY"] = usedHolidayApprovedOnly;
+
     // totals คงเหลือ = (ยอดยกที่ยังใช้ได้วันนี้) + (สิทธิ์ปีนี้ที่เหลือหลังกัน PENDING)
     const totalRemainAnnual = remainCarryForwardAnnual + remainVacationLeave;
     const totalRemainHoliday = remainCarryForwardHoliday + remainHolidayLeave;
+
+    // ✅ NEW: Holiday "ใช้ได้วันนี้" = ยอดยกที่ยังไม่หมดอายุ + สิทธิ์ปีนี้ที่ปลดล็อคตามวันหยุดที่ผ่านแล้ว
+    // หมายเหตุ: ไม่เอา "วันอนาคต" มาเป็นสิทธิ์ใช้ได้ แต่ก็ไม่ถือว่าเป็น "used"
+    const passedHolidayCount = Array.from(holidays).filter((d) => d <= todayKey)
+      .length;
+    const holidayAccruedThisYear = Math.min(entitledHoliday, passedHolidayCount);
+
+    // used-from-current (รวม PENDING) = (used approved) + (used pending)
+    const usedHolidayApprovedFromCurrent = Math.max(
+      0,
+      entitledHoliday - remainHolidayLeaveApprovedOnly
+    );
+    const usedHolidayPendingFromCurrent = Math.max(
+      0,
+      remainHolidayLeaveApprovedOnly - remainHolidayLeave
+    );
+    const usedHolidayFromCurrentInclPending =
+      usedHolidayApprovedFromCurrent + usedHolidayPendingFromCurrent;
+
+    const holidayCurrentAccruedRemain = Math.max(
+      0,
+      Math.min(
+        remainHolidayLeave,
+        holidayAccruedThisYear - usedHolidayFromCurrentInclPending
+      )
+    );
+    const holidayAvailableNow =
+      Math.max(0, remainCarryForwardHoliday) + holidayCurrentAccruedRemain;
+
+    // approved-only variant (ไม่รวม PENDING)
+    const holidayCurrentAccruedRemainApprovedOnly = Math.max(
+      0,
+      Math.min(
+        remainHolidayLeaveApprovedOnly,
+        holidayAccruedThisYear - usedHolidayApprovedFromCurrent
+      )
+    );
+    const holidayAvailableNowApprovedOnly =
+      Math.max(0, remainCarryForwardHolidayApprovedOnly) +
+      holidayCurrentAccruedRemainApprovedOnly;
+
+    // DB-backed remaining balances (LeaveRights) for quota kinds.
+    // These should reflect APPROVED deductions (PENDING is tracked separately).
+    const remainingByKind = {
+      SICK: toNum((rights as any)?.sickLeave ?? 0),
+      BUSINESS: toNum((rights as any)?.businessLeave ?? 0),
+      UNPAID: toNum((rights as any)?.unpaidLeave ?? 0),
+      BIRTHDAY: toNum((rights as any)?.birthdayLeave ?? 0),
+      ORDAIN: toNum((rights as any)?.ordainLeave ?? 0),
+      MATERNITY: toNum((rights as any)?.maternityLeave ?? 0),
+    };
 
     return NextResponse.json({
       ok: true,
       data: {
         ...summary,
+        usedApprovedOnlyByKind,
+        usedPendingByKind,
+        remainingByKind,
         annualTotal,
         holidayTotal,
         carryForwardAnnual: rights?.carryForwardAnnual ?? 0,
@@ -385,6 +461,14 @@ export async function GET(req: NextRequest) {
         totalRemainHolidayApprovedOnly,
         usedAnnualApprovedOnly,
         usedHolidayApprovedOnly,
+
+        // ✅ Holiday availability (accrual-based)
+        passedHolidayCount,
+        holidayAccruedThisYear,
+        holidayCurrentAccruedRemain,
+        holidayAvailableNow,
+        holidayCurrentAccruedRemainApprovedOnly,
+        holidayAvailableNowApprovedOnly,
       },
     });
   } catch (error) {

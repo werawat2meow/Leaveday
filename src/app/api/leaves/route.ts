@@ -11,6 +11,20 @@ import { NextRequest, NextResponse } from "next/server";
 
 type HalfSession = "FULL" | "AM" | "PM";
 
+function toNum(x: any) {
+  if (typeof x === "number" && Number.isFinite(x)) return x;
+  if (typeof x === "string" && x.trim() !== "") {
+    const n = Number(x);
+    return Number.isFinite(n) ? n : 0;
+  }
+  if (x && typeof x === "object" && typeof x.toNumber === "function") {
+    const n = x.toNumber();
+    return typeof n === "number" && Number.isFinite(n) ? n : 0;
+  }
+  const n = Number(x);
+  return Number.isFinite(n) ? n : 0;
+}
+
 function yearStart(y: number) {
   return new Date(`${y}-01-01T00:00:00.000Z`);
 }
@@ -251,6 +265,7 @@ export async function POST(req: NextRequest) {
 
     if (isQuotaKind) {
       const now = new Date();
+      const todayKey = now.toISOString().slice(0, 10);
 
       for (const y of years) {
         const reqY = Number(requestedByYear[y] ?? 0);
@@ -302,11 +317,10 @@ export async function POST(req: NextRequest) {
           const cfActiveNow = !!(cfTotal > 0 && cfExpiry && cfExpiry > now);
 
           let cfRemain = cfActiveNow ? cfTotal : 0;
-          let currentRemain = Number(
-            kind === "ANNUAL"
-              ? rights?.vacationLeave ?? 0
-              : rights?.holidayLeave ?? 0
+          const currentApprovedRemain = Number(
+            kind === "ANNUAL" ? rights?.vacationLeave ?? 0 : rights?.holidayLeave ?? 0
           );
+          let currentRemain = currentApprovedRemain;
 
           const segStartInYear =
             segments.find((s) => s.year === y)?.start ?? start;
@@ -337,34 +351,87 @@ export async function POST(req: NextRequest) {
             if (remain > 0) currentRemain -= remain;
           }
 
-          const available =
-            Math.max(0, currentRemain) +
-            (cfActiveNow ? Math.max(0, cfRemain) : 0);
-          if (reqY > available) {
-            return NextResponse.json(
-              { error: `สิทธิ์คงเหลือไม่พอ (ปี ${y} เหลือ ${available} วัน)` },
-              { status: 400 }
-            );
-          }
+          // ✅ NEW: Annual Holiday (ปีนี้) ใช้ได้เฉพาะ "วันหยุดที่ประกาศและผ่านมาแล้ว" (ไม่ให้ยืมอนาคต)
+          if (kind === "ANNUAL_HOLIDAY") {
+            const declared = holidaysY.size;
+            const passed = Array.from(holidaysY).filter((d) => d <= todayKey).length;
 
-          // จองสิทธิ์สำหรับคำขอใหม่นี้ (ไม่เอาไปหักจริงจนกว่าจะ APPROVED)
-          // ใช้ตรรกะเดียวกับ validation: ยอดยกใช้ได้เฉพาะถ้ายังไม่หมดอายุ ณ ตอนยื่นลา และวันที่ลาอยู่ก่อนวันหมดอายุ
-          let remainNew = reqY;
-          let useCfNew = 0;
-          if (
-            cfRemain > 0 &&
-            cfExpiry &&
-            cfActiveNow &&
-            segStartInYear < cfExpiry
-          ) {
-            useCfNew = Math.min(cfRemain, remainNew);
-            remainNew -= useCfNew;
+            const accrued = Math.min(declared, passed);
+
+            // สมมติสิทธิ์ holidayLeave ปีนั้นตั้งต้นเท่ากับจำนวนวันหยุดที่ประกาศ (declared)
+            const usedApprovedFromCurrent = Math.max(0, declared - Math.max(0, currentApprovedRemain));
+            const usedPendingFromCurrent = Math.max(0, Math.max(0, currentApprovedRemain) - Math.max(0, currentRemain));
+            const usedFromCurrentInclPending = usedApprovedFromCurrent + usedPendingFromCurrent;
+
+            const currentAccruedRemainRaw = Math.max(0, accrued - usedFromCurrentInclPending);
+            const currentAccruedRemain = Math.min(Math.max(0, currentRemain), currentAccruedRemainRaw);
+            const availableNow = currentAccruedRemain + (cfActiveNow ? Math.max(0, cfRemain) : 0);
+
+            if (reqY > availableNow) {
+              return NextResponse.json(
+                {
+                  error: `Annual Holiday ใช้ได้ไม่พอ ณ ตอนนี้ (ปี ${y} ใช้ได้ ${availableNow} วัน: ยอดยก ${cfActiveNow ? Math.max(0, cfRemain) : 0} + ปีนี้ที่ปลดล็อคแล้วคงเหลือ ${currentAccruedRemain})`,
+                },
+                { status: 400 }
+              );
+            }
+
+            // จองสิทธิ์สำหรับคำขอใหม่นี้ (ไม่เอาไปหักจริงจนกว่าจะ APPROVED)
+            let remainNew = reqY;
+            let useCfNew = 0;
+            if (
+              cfRemain > 0 &&
+              cfExpiry &&
+              cfActiveNow &&
+              segStartInYear < cfExpiry
+            ) {
+              useCfNew = Math.min(cfRemain, remainNew);
+              remainNew -= useCfNew;
+            }
+
+            if (remainNew > currentAccruedRemain) {
+              return NextResponse.json(
+                {
+                  error: "Annual Holiday ปีนี้ยังปลดล็อคไม่พอ (ไม่สามารถใช้สิทธิ์อนาคตได้)",
+                },
+                { status: 400 }
+              );
+            }
+
+            reservation[String(y)] = {
+              cf: Number(useCfNew),
+              current: Number(remainNew),
+            };
+          } else {
+            const available =
+              Math.max(0, currentRemain) +
+              (cfActiveNow ? Math.max(0, cfRemain) : 0);
+            if (reqY > available) {
+              return NextResponse.json(
+                { error: `สิทธิ์คงเหลือไม่พอ (ปี ${y} เหลือ ${available} วัน)` },
+                { status: 400 }
+              );
+            }
+
+            // จองสิทธิ์สำหรับคำขอใหม่นี้ (ไม่เอาไปหักจริงจนกว่าจะ APPROVED)
+            // ใช้ตรรกะเดียวกับ validation: ยอดยกใช้ได้เฉพาะถ้ายังไม่หมดอายุ ณ ตอนยื่นลา และวันที่ลาอยู่ก่อนวันหมดอายุ
+            let remainNew = reqY;
+            let useCfNew = 0;
+            if (
+              cfRemain > 0 &&
+              cfExpiry &&
+              cfActiveNow &&
+              segStartInYear < cfExpiry
+            ) {
+              useCfNew = Math.min(cfRemain, remainNew);
+              remainNew -= useCfNew;
+            }
+            const useCurrentNew = remainNew;
+            reservation[String(y)] = {
+              cf: Number(useCfNew),
+              current: Number(useCurrentNew),
+            };
           }
-          const useCurrentNew = remainNew;
-          reservation[String(y)] = {
-            cf: Number(useCfNew),
-            current: Number(useCurrentNew),
-          };
         } else {
           const entitled = (() => {
             switch (kind as string) {
@@ -469,13 +536,22 @@ export async function PATCH(req: NextRequest) {
   }
 
   try {
+    const leaveIntId = parseInt(leaveId);
+    const prev = await prisma.leave.findUnique({
+      where: { id: leaveIntId },
+      select: { id: true, status: true, kind: true, startDate: true, endDate: true, session: true, userId: true },
+    });
+    if (!prev) {
+      return NextResponse.json({ error: "leave not found" }, { status: 404 });
+    }
+
     const updatedLeave = await prisma.leave.update({
-      where: { id: parseInt(leaveId) },
+      where: { id: leaveIntId },
       data: {
         status,
         approverReason,
         approverSignature,
-        approvedAt: new Date(),
+        approvedAt: status === "APPROVED" ? new Date() : null,
       },
       include: {
         user: {
@@ -509,13 +585,32 @@ export async function PATCH(req: NextRequest) {
     });
     (updatedLeave as any).reservation = updatedLeaveReservation?.reservation;
 
-    if (
-      status === "APPROVED" &&
-      ["ANNUAL", "ANNUAL_HOLIDAY"].includes(updatedLeave.kind)
-    ) {
+    // Only decrement rights when transitioning to APPROVED (idempotent guard)
+    if (status === "APPROVED" && prev.status !== "APPROVED") {
       if (updatedLeave.user.employee) {
         const employeeId = updatedLeave.user.employee.id;
         const now = new Date();
+
+        const quotaFieldForKind = (kind: string) => {
+          switch (kind) {
+            case "BUSINESS":
+              return "businessLeave" as const;
+            case "SICK":
+              return "sickLeave" as const;
+            case "ORDAIN":
+              return "ordainLeave" as const;
+            case "MATERNITY":
+              return "maternityLeave" as const;
+            case "UNPAID":
+              return "unpaidLeave" as const;
+            case "BIRTHDAY":
+              return "birthdayLeave" as const;
+            default:
+              return null;
+          }
+        };
+
+        if (["ANNUAL", "ANNUAL_HOLIDAY"].includes(updatedLeave.kind)) {
 
         // ถ้ามี reservation ให้หักตามที่จองไว้ (ไม่คำนวณใหม่)
         const res = (updatedLeave as any).reservation as
@@ -626,17 +721,22 @@ export async function PATCH(req: NextRequest) {
           });
           if (!rights) continue;
 
+          const carryForwardAnnualNum = Number(rights.carryForwardAnnual ?? 0);
+          const carryForwardHolidayNum = Number(rights.carryForwardHoliday ?? 0);
+          const vacationLeaveNum = Number(rights.vacationLeave ?? 0);
+          const holidayLeaveNum = Number(rights.holidayLeave ?? 0);
+
           let remain = Number(daysInYear);
 
           // 1) หักยอดยกก่อน โดยอิง "วันที่ลา" (segment.start) ไม่ใช่วันที่อนุมัติ
           if (
             updatedLeave.kind === "ANNUAL" &&
-            rights.carryForwardAnnual > 0 &&
+            carryForwardAnnualNum > 0 &&
             rights.carryForwardAnnualExpiry &&
             new Date(rights.carryForwardAnnualExpiry) > now &&
             seg.start < new Date(rights.carryForwardAnnualExpiry)
           ) {
-            const useCF = Math.min(remain, Number(rights.carryForwardAnnual));
+            const useCF = Math.min(remain, carryForwardAnnualNum);
             if (useCF > 0) {
               await prisma.leaveRights.updateMany({
                 where: { employeeId, year: seg.year },
@@ -647,12 +747,12 @@ export async function PATCH(req: NextRequest) {
           }
           if (
             updatedLeave.kind === "ANNUAL_HOLIDAY" &&
-            rights.carryForwardHoliday > 0 &&
+            carryForwardHolidayNum > 0 &&
             rights.carryForwardHolidayExpiry &&
             new Date(rights.carryForwardHolidayExpiry) > now &&
             seg.start < new Date(rights.carryForwardHolidayExpiry)
           ) {
-            const useCF = Math.min(remain, Number(rights.carryForwardHoliday));
+            const useCF = Math.min(remain, carryForwardHolidayNum);
             if (useCF > 0) {
               await prisma.leaveRights.updateMany({
                 where: { employeeId, year: seg.year },
@@ -664,8 +764,8 @@ export async function PATCH(req: NextRequest) {
 
           // 2) หักสิทธิ์ปีนั้น ๆ
           if (remain > 0) {
-            if (updatedLeave.kind === "ANNUAL" && rights.vacationLeave > 0) {
-              const useCurrent = Math.min(remain, Number(rights.vacationLeave));
+            if (updatedLeave.kind === "ANNUAL" && vacationLeaveNum > 0) {
+              const useCurrent = Math.min(remain, vacationLeaveNum);
               if (useCurrent > 0) {
                 await prisma.leaveRights.updateMany({
                   where: { employeeId, year: seg.year },
@@ -676,9 +776,9 @@ export async function PATCH(req: NextRequest) {
             }
             if (
               updatedLeave.kind === "ANNUAL_HOLIDAY" &&
-              rights.holidayLeave > 0
+              holidayLeaveNum > 0
             ) {
-              const useCurrent = Math.min(remain, Number(rights.holidayLeave));
+              const useCurrent = Math.min(remain, holidayLeaveNum);
               if (useCurrent > 0) {
                 await prisma.leaveRights.updateMany({
                   where: { employeeId, year: seg.year },
@@ -686,6 +786,62 @@ export async function PATCH(req: NextRequest) {
                 });
                 remain -= useCurrent;
               }
+            }
+          }
+        }
+
+        } else {
+          const field = quotaFieldForKind(updatedLeave.kind);
+          if (field) {
+            const start = new Date(updatedLeave.startDate);
+            const end = new Date(updatedLeave.endDate);
+
+            // If the leave is entirely within one year, prefer stored requestedDays
+            // so UI and DB use the same number.
+            if (
+              start.getFullYear() === end.getFullYear() &&
+              toNum((updatedLeave as any).requestedDays) > 0
+            ) {
+              const y = start.getFullYear();
+              await ensureLeaveRightsForYear(employeeId, y);
+              await prisma.leaveRights.updateMany({
+                where: { employeeId, year: y },
+                data: {
+                  [field]: { decrement: toNum((updatedLeave as any).requestedDays) },
+                } as any,
+              });
+              return NextResponse.json(updatedLeave);
+            }
+
+            const segs = splitRangeByYear(start, end);
+            const years = Array.from(new Set(segs.map((s) => s.year)));
+            const holidaysByYear: Record<number, Set<string>> = {};
+            await Promise.all(
+              years.map(async (y) => {
+                holidaysByYear[y] = await holidaySetForYear(y);
+              })
+            );
+
+            for (const seg of segs) {
+              const holidaysY = holidaysByYear[seg.year] ?? new Set<string>();
+              const segSession: HalfSession = seg.includesOriginalStart
+                ? (updatedLeave.session as HalfSession | null) ?? "FULL"
+                : "FULL";
+
+              const daysInYear = countBusinessDays(
+                seg.start,
+                seg.end,
+                segSession,
+                holidaysY,
+                updatedLeave.user.employee.weeklyHoliday ?? undefined
+              );
+              if (daysInYear <= 0) continue;
+
+              await ensureLeaveRightsForYear(employeeId, seg.year);
+              await prisma.leaveRights.updateMany({
+                where: { employeeId, year: seg.year },
+                data: { [field]: { decrement: Number(daysInYear) } } as any,
+              });
             }
           }
         }
