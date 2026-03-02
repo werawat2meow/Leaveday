@@ -10,28 +10,60 @@ export async function GET(req: NextRequest) {
 
     const { searchParams } = new URL(req.url);
     const monthParam = searchParams.get("month");
-        const month = monthParam && /^\d{4}-(0[1-9]|1[0-2])$/.test(monthParam)
+    const month = monthParam && /^\d{4}-(0[1-9]|1[0-2])$/.test(monthParam)
       ? monthParam
       : (() => { const n = new Date(); return `${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,"0")}`; })();
 
     const [y, m] = month.split("-").map(Number);
     const start = new Date(Date.UTC(y, m-1, 1));
     const nextMonth = new Date(Date.UTC(y, m, 1));
-     // optional: find caller's employee to filter by org/department
+
+    // optional: find caller's employee to filter by org/department (existing behaviour)
     const user = await prisma.user.findUnique({ where: { email: session.user.email }, include: { employee: true } });
     const approverOrg = user?.employee?.org ?? null;
     const approverDept = user?.employee?.department ?? null;
 
-    const where: any = { startDate: { lt: nextMonth }, endDate: { gte: start } };
-    if (approverOrg || approverDept) {
-      where.user = { employee: { ...(approverOrg ? { org: approverOrg } : {}), ...(approverDept ? { department: approverDept } : {}) } };
+    const orgFilter = searchParams.get("org") || undefined;
+    const deptFilter = searchParams.get("department") || undefined;
+    const divFilter = searchParams.get("division") || undefined;
+    const unitFilter = searchParams.get("unit") || undefined;
+
+    const where: any = {
+      startDate: { lt: nextMonth },
+      endDate: { gte: start }
+    };
+    // combine approver restrictions and explicit query filters
+    const empWhere: any = {};
+    if (approverOrg) empWhere.org = approverOrg;
+    if (approverDept) empWhere.department = approverDept;
+    if (orgFilter) empWhere.org = orgFilter;
+    if (deptFilter) empWhere.department = deptFilter;
+    if (divFilter) empWhere.division = divFilter;
+    if (unitFilter) empWhere.unit = unitFilter;
+    if (Object.keys(empWhere).length > 0) {
+      where.user = { employee: empWhere };
     }
 
     const leaves = await prisma.leave.findMany({
       where,
       select: {
         startDate: true, endDate: true, status: true,
-        user: { select: { employee: { select: { prefix: true, firstName: true, lastName: true, empNo: true } } } }
+        user: {
+          select: {
+            employee: {
+              select: {
+                prefix: true,
+                firstName: true,
+                lastName: true,
+                empNo: true,
+                org: true,
+                department: true,
+                division: true,
+                unit: true,
+              }
+            }
+          }
+        }
       },
       orderBy: { startDate: "asc" }
     });

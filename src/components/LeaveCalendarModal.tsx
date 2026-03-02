@@ -32,6 +32,13 @@ export default function LeaveCalendarModal({ open, onClose }: Props) {
   const [loading, setLoading] = React.useState(false);
   const [daysMap, setDaysMap] = React.useState<Record<string, DayRow>>({});
   const [expandedDay, setExpandedDay] = React.useState<string | null>(null);
+
+  // filter states
+  const [fOrg, setFOrg] = React.useState("");
+  const [fDept, setFDept] = React.useState("");
+  const [fDivision, setFDivision] = React.useState("");
+  const [fUnit, setFUnit] = React.useState("");
+  const [opts, setOpts] = React.useState<{ org:string[]; department:string[]; division:string[]; unit:string[] }>({ org: [], department: [], division: [], unit: [] });
   const cellRefs = React.useRef<Record<string, HTMLDivElement | null>>({});
   const [popupAbove, setPopupAbove] = React.useState(false);
   const [isMobile, setIsMobile] = React.useState(false);
@@ -41,11 +48,28 @@ export default function LeaveCalendarModal({ open, onClose }: Props) {
     bottom?: number;
   } | null>(null);
 
-  // fetch calendar per-month
+  // fetch calendar options once
+  React.useEffect(() => {
+    if (!open) return;
+    fetch(`/api/leaves/calendar-options?month=${encodeURIComponent(month)}`)
+      .then((r) => r.json())
+      .then((j) => {
+        if (j?.ok) {
+          setOpts({ org: j.org || [], department: j.department || [], division: j.division || [], unit: j.unit || [] });
+        }
+      })
+      .catch(() => {});
+  }, [open, month]);
+
+  // fetch calendar per-month with filters
   React.useEffect(() => {
     if (!open) return;
     setLoading(true);
     const params = new URLSearchParams({ month });
+    if (fOrg) params.set("org", fOrg);
+    if (fDept) params.set("department", fDept);
+    if (fDivision) params.set("division", fDivision);
+    if (fUnit) params.set("unit", fUnit);
     fetch(`/api/leaves/calendar?${params.toString()}`)
       .then((res) => res.json())
       .then((json) => {
@@ -56,7 +80,7 @@ export default function LeaveCalendarModal({ open, onClose }: Props) {
         setDaysMap({});
         setLoading(false);
       });
-  }, [open, month]);
+  }, [open, month, fOrg, fDept, fDivision, fUnit]);
 
   // detect mobile (for bottom-sheet behaviour)
   React.useEffect(() => {
@@ -183,6 +207,50 @@ export default function LeaveCalendarModal({ open, onClose }: Props) {
               ›
             </button>
           </div>
+        </div>
+
+        {/* filters */}
+        <div className="mb-4 grid gap-2 sm:grid-cols-4">
+          <select
+            className="rounded border px-2 py-1 text-sm"
+            value={fOrg}
+            onChange={(e) => setFOrg(e.target.value)}
+          >
+            <option value="">สังกัดทั้งหมด</option>
+            {opts.org.map((o) => (
+              <option key={o} value={o}>{o}</option>
+            ))}
+          </select>
+          <select
+            className="rounded border px-2 py-1 text-sm"
+            value={fDept}
+            onChange={(e) => setFDept(e.target.value)}
+          >
+            <option value="">แผนกทั้งหมด</option>
+            {opts.department.map((o) => (
+              <option key={o} value={o}>{o}</option>
+            ))}
+          </select>
+          <select
+            className="rounded border px-2 py-1 text-sm"
+            value={fDivision}
+            onChange={(e) => setFDivision(e.target.value)}
+          >
+            <option value="">ฝ่ายทั้งหมด</option>
+            {opts.division.map((o) => (
+              <option key={o} value={o}>{o}</option>
+            ))}
+          </select>
+          <select
+            className="rounded border px-2 py-1 text-sm"
+            value={fUnit}
+            onChange={(e) => setFUnit(e.target.value)}
+          >
+            <option value="">หน่วยทั้งหมด</option>
+            {opts.unit.map((o) => (
+              <option key={o} value={o}>{o}</option>
+            ))}
+          </select>
         </div>
 
         {/* calendar header */}

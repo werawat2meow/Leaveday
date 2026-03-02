@@ -46,6 +46,34 @@ function fmtDate(s: string) {
   return `${day}/${month}/${year}`;
 }
 
+function stripTitle(s: string): string {
+  if (!s) return "";
+  const orig = s.trim();
+  let str = orig;
+  // pattern covers Thai honorifics and single-letter+dot (dot must be followed by space)
+  const pattern = /^(นาย|นางสาว?|สาว|เด็กชาย|เด็กหญิง|ว่าที่ร้อยตรี|ว่าที่ร้อยเอก|คุณ|[A-Za-z]\.)\s*/i;
+  // remove repeatedly in case multiple prefixes appear
+  while (pattern.test(str)) {
+    str = str.replace(pattern, "").trim();
+  }
+  // if stripping removed everything, revert to original (so we don't show '-')
+  if (str === "" && orig !== "") {
+    return orig;
+  }
+  return str;
+}
+
+function fmtEmployeeName(emp?: {
+  firstName?: string;
+  lastName?: string;
+}): string {
+  if (!emp) return "-";
+  const fn = stripTitle(emp.firstName || "");
+  const ln = stripTitle(emp.lastName || "");
+  const name = [fn, ln].filter(Boolean).join(" ");
+  return name || "-";
+}
+
 export default function EmployeeLeaveHistoryModal({
   open,
   onClose,
@@ -57,14 +85,47 @@ export default function EmployeeLeaveHistoryModal({
   const [startDate, setStartDate] = React.useState("");
   const [endDate, setEndDate] = React.useState("");
 
+  const [fOrg, setFOrg] = React.useState("");
+  const [fDept, setFDept] = React.useState("");
+  const [fDivision, setFDivision] = React.useState("");
+  const [fUnit, setFUnit] = React.useState("");
+
+  const opts = React.useMemo(() => {
+    const getUnique = (
+      field: "org" | "department" | "division" | "unit"
+    ): string[] => {
+      return Array.from(
+        new Set(
+          leaves
+            .map((x) => x.user.employee?.[field])
+            .filter((v): v is string => !!v)
+        )
+      ).sort();
+    };
+    return {
+      org: getUnique("org"),
+      dept: getUnique("department"),
+      division: getUnique("division"),
+      unit: getUnique("unit"),
+    };
+  }, [leaves]);
+
   React.useEffect(() => {
     if (!open) {
       // Reset เมื่อปิด modal
       setLeaves([]);
       setStartDate("");
       setEndDate("");
+
+      setFOrg("");
+      setFDept("");
+      setFDivision("");
+      setFUnit("");
       return;
     }
+
+    // preset filter ตาม department ที่ส่งเข้ามา (ถ้ามี)
+    setFDept(department || "");
 
     let cancelled = false;
     setLoading(true);
@@ -73,17 +134,22 @@ export default function EmployeeLeaveHistoryModal({
       ? `/api/leaves/all?department=${encodeURIComponent(department)}`
       : "/api/leaves/all";
 
+    // ถ้ามี leaveHistory ส่งเข้ามา ให้ใช้ก่อน (กัน modal โหลดซ้ำ)
+    if (leaveHistory && leaveHistory.length > 0) {
+      setLeaves(leaveHistory);
+      setLoading(false);
+      return;
+    }
+
     fetch(url)
       .then((res) => res.json())
       .then((json) => {
         if (cancelled) return;
-        console.log("[Modal API] raw data:", json.data);
         setLeaves(json.data || []);
         setLoading(false);
       })
       .catch((err) => {
         if (cancelled) return;
-        console.error("[Modal API] error:", err);
         setLoading(false);
       });
 
@@ -92,16 +158,17 @@ export default function EmployeeLeaveHistoryModal({
     };
   }, [open, department]);
 
-  React.useEffect(() => {
-    if (open) {
-      console.log("[Modal] leaves for render:", leaves);
-    }
-  }, [open, leaves]);
-
-  // Filter leaves by date range
+  // Filter leaves by org + date range
   const filteredLeaves = React.useMemo(() => {
-    if (!startDate && !endDate) return leaves;
     return leaves.filter((l) => {
+      const employee = l.user.employee;
+      const hitOrg = !fOrg || employee?.org === fOrg;
+      const hitDept = !fDept || employee?.department === fDept;
+      const hitDivision = !fDivision || employee?.division === fDivision;
+      const hitUnit = !fUnit || employee?.unit === fUnit;
+      if (!hitOrg || !hitDept || !hitDivision || !hitUnit) return false;
+
+      if (!startDate && !endDate) return true;
       const leaveStart = new Date(l.startDate);
       const leaveEnd = new Date(l.endDate);
       const filterStart = startDate ? new Date(startDate) : null;
@@ -110,7 +177,8 @@ export default function EmployeeLeaveHistoryModal({
       if (filterEnd && leaveStart > filterEnd) return false;
       return true;
     });
-  }, [leaves, startDate, endDate]);
+  }, [leaves, fOrg, fDept, fDivision, fUnit, startDate, endDate]);
+  
 
   if (!open) return null;
 
@@ -138,8 +206,80 @@ export default function EmployeeLeaveHistoryModal({
             ✕
           </button>
         </div>
-        {/* Filter by date range */}
-        <div className="flex flex-col sm:flex-row gap-1 sm:gap-2 mb-3 sm:mb-4">
+        {/* Filters */}
+        <div className="mb-3 sm:mb-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-6">
+          <div>
+            <label className="block text-xs sm:text-sm mb-1 text-slate-700 dark:text-white/80">
+              สังกัด
+            </label>
+            <select
+              value={fOrg}
+              onChange={(e) => setFOrg(e.target.value)}
+              className="rounded border px-2 py-1 text-xs sm:text-sm w-full text-black"
+            >
+              <option value="">ทั้งหมด</option>
+              {opts.org.map((o) => (
+                <option key={o} value={o}>
+                  {o}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-xs sm:text-sm mb-1 text-slate-700 dark:text-white/80">
+              แผนก
+            </label>
+            <select
+              value={fDept}
+              onChange={(e) => setFDept(e.target.value)}
+              className="rounded border px-2 py-1 text-xs sm:text-sm w-full text-black"
+            >
+              <option value="">ทั้งหมด</option>
+              {opts.dept.map((o) => (
+                <option key={o} value={o}>
+                  {o}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-xs sm:text-sm mb-1 text-slate-700 dark:text-white/80">
+              ฝ่าย
+            </label>
+            <select
+              value={fDivision}
+              onChange={(e) => setFDivision(e.target.value)}
+              className="rounded border px-2 py-1 text-xs sm:text-sm w-full text-black"
+            >
+              <option value="">ทั้งหมด</option>
+              {opts.division.map((o) => (
+                <option key={o} value={o}>
+                  {o}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-xs sm:text-sm mb-1 text-slate-700 dark:text-white/80">
+              หน่วย
+            </label>
+            <select
+              value={fUnit}
+              onChange={(e) => setFUnit(e.target.value)}
+              className="rounded border px-2 py-1 text-xs sm:text-sm w-full text-black"
+            >
+              <option value="">ทั้งหมด</option>
+              {opts.unit.map((o) => (
+                <option key={o} value={o}>
+                  {o}
+                </option>
+              ))}
+            </select>
+          </div>
+
           <div>
             <label className="block text-xs sm:text-sm mb-1 text-slate-700 dark:text-white/80">
               จากวันที่
@@ -148,9 +288,10 @@ export default function EmployeeLeaveHistoryModal({
               type="date"
               value={startDate}
               onChange={(e) => setStartDate(e.target.value)}
-              className="rounded border px-2 py-1 text-xs sm:text-sm w-full sm:w-auto text-black"
+              className="rounded border px-2 py-1 text-xs sm:text-sm w-full text-black"
             />
           </div>
+
           <div>
             <label className="block text-xs sm:text-sm mb-1 text-slate-700 dark:text-white/80">
               ถึงวันที่
@@ -159,7 +300,7 @@ export default function EmployeeLeaveHistoryModal({
               type="date"
               value={endDate}
               onChange={(e) => setEndDate(e.target.value)}
-              className="rounded border px-2 py-1 text-xs sm:text-sm w-full sm:w-auto text-black"
+              className="rounded border px-2 py-1 text-xs sm:text-sm w-full text-black"
             />
           </div>
         </div>
@@ -212,14 +353,18 @@ export default function EmployeeLeaveHistoryModal({
                 ) : (
                   filteredLeaves.map((item: LeaveRequest, idx: number) => {
                     const employee = item.user.employee;
-                    const name = employee
-                      ? `${employee.firstName} ${employee.lastName}`
-                      : "-";
-                    const approver =
-                      item.approverName || item.handoverTo || "-";
-                    let statusLabel = "รออนุมัติ";
-                    let statusClass =
-                      "bg-yellow-200 text-yellow-800 border-yellow-300";
+                  // compose employee name without title
+                  const name = fmtEmployeeName(employee);
+
+                  // format approver: strip title from string first
+                  let approverRaw = item.approverName || item.handoverTo || "";
+                  approverRaw = stripTitle(approverRaw);
+                  // if still empty, show a sensible placeholder instead of dash
+                  const approver = approverRaw || "ยังไม่มีผู้อนุมัติ";
+
+                  let statusLabel = "รออนุมัติ";
+                  let statusClass =
+                    "bg-yellow-200 text-yellow-800 border-yellow-300";
                     if (item.status === "APPROVED") {
                       statusLabel = "อนุมัติแล้ว";
                       statusClass =

@@ -1,6 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import {
+  exportHrConfirmToExcel,
+  exportHrConfirmToPdf,
+  type LeaveRequest as ExportLeaveRequest,
+} from "@/lib/exports/hrConfirmRecheckExport";
 
 /* ---------- Types ---------- */
 type LeaveStatus = "pending" | "approved" | "rejected";
@@ -34,6 +39,8 @@ export default function HRConfirmRecheckPage() {
   const [fUnit, setFUnit] = useState("");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
+  // options loaded separately so selects always show full lists
+  const [orgOptionsList, setOrgOptionsList] = useState<string[]>([]);
 
   // toggle view
   const [showConfirmed, setShowConfirmed] = useState(false);
@@ -100,12 +107,32 @@ export default function HRConfirmRecheckPage() {
     const uniq = <K extends keyof LeaveRequest>(k: K) =>
       Array.from(new Set(data.map((x) => x[k]).filter(Boolean))).sort() as string[];
     return {
-      org: uniq("org"),
+      // prefer server-provided full organization list to avoid shrinking
+      org: orgOptionsList.length > 0 ? orgOptionsList : uniq("org"),
       dept: uniq("dept"),
       division: uniq("division"),
       unit: uniq("unit"),
     };
-  }, [data]);
+  }, [data, orgOptionsList]);
+
+  // fetch organization list once so the org select always contains all orgs
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        const res = await fetch(`/api/organizations`);
+        if (!res.ok) return;
+        const list = await res.json();
+        if (!mounted) return;
+        if (Array.isArray(list)) setOrgOptionsList(list.map((o: any) => o.name));
+      } catch (e) {
+        // ignore - keep orgOptionsList empty so fallback uses data-derived opts
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   // lists
   const waitingList = useMemo(
@@ -140,6 +167,36 @@ export default function HRConfirmRecheckPage() {
 
   // ใช้ list ตามโหมดที่เลือก
   const list = showConfirmed ? confirmedList : waitingList;
+
+  const handleExportExcel = async () => {
+    try {
+      await exportHrConfirmToExcel({
+        rows: list as unknown as ExportLeaveRequest[],
+        showConfirmed,
+        dateFrom,
+        dateTo,
+      });
+    } catch (e) {
+      console.error(e);
+      setToast({ type: "error", msg: "Export Excel Not Successful" });
+      setTimeout(() => setToast(null), 2000);
+    }
+  };
+
+  const handleExportPdf = async () => {
+    try {
+      await exportHrConfirmToPdf({
+        rows: list as unknown as ExportLeaveRequest[],
+        showConfirmed,
+        dateFrom,
+        dateTo,
+      });
+    } catch (e) {
+      console.error(e);
+      setToast({ type: "error", msg: "Export PDF ไม่สำเร็จ" });
+      setTimeout(() => setToast(null), 2000);
+    }
+  };
 
   // selection helpers
   const visibleIds = list.map((r) => r.id);
@@ -266,6 +323,23 @@ export default function HRConfirmRecheckPage() {
             : `รอ HR ยืนยัน ${waitingList.length} รายการ • เลือกแล้ว ${selectedIds.size}`}
         </div>
         <div className="flex gap-2">
+          <button
+            className="rounded-lg bg-green-600 text-white px-3 py-1 text-sm font-medium hover:bg-green-700 disabled:opacity-50 dark:bg-green-500 dark:hover:bg-green-600"
+            onClick={handleExportExcel}
+            disabled={loading || list.length === 0}
+            title="Export ทั้งหมดตามตัวกรองเป็น Excel"
+          >
+            Export Excel
+          </button>
+
+          <button
+            className="rounded-lg bg-red-600 text-white px-3 py-1 text-sm font-medium hover:bg-red-700 disabled:opacity-50 dark:bg-red-500 dark:hover:bg-red-600"
+            onClick={handleExportPdf}
+            disabled={loading || list.length === 0}
+            title="Export ทั้งหมดตามตัวกรองเป็น PDF"
+          >
+            Export PDF
+          </button>
           <button
             className="rounded-lg border border-amber-300 px-3 py-1 text-sm text-amber-700 hover:bg-amber-50
                        dark:border-amber-500/50 dark:text-amber-300 dark:hover:bg-amber-900/30"

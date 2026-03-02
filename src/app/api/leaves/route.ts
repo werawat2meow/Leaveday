@@ -1,5 +1,6 @@
 import { authOptions } from "@/lib/auth";
 import { ensureLeaveRightsForYear } from "@/lib/leave-rights-rollover";
+import { findLeaveBlackoutConflict } from "@/lib/leave-blackout";
 import { countBusinessDays, normalizeSession } from "@/lib/leave-utils";
 import {
   countBusinessDaysByYear,
@@ -204,6 +205,20 @@ export async function POST(req: NextRequest) {
     const start = new Date(startDate);
     const end = new Date(endDate);
     const sNorm = normalizeSession(sessionLabel);
+
+    // ปิดรับการลา (Blackout) ตามหน่วยงานและประเภทการลา
+    const blackout = await findLeaveBlackoutConflict({
+      employeeId: user.employee.id,
+      kind,
+      start,
+      end,
+    });
+    if (blackout) {
+      const msg = blackout.reason
+        ? `ช่วงวันที่เลือกถูกปิดรับการลา (${blackout.reason})`
+        : "ช่วงวันที่เลือกถูกปิดรับการลา";
+      return NextResponse.json({ error: msg }, { status: 400 });
+    }
 
     // คำนวณวันลาแยกตามปี (รองรับลาคร่อมปี)
     const segments = splitRangeByYear(start, end);

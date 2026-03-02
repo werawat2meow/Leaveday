@@ -1,26 +1,15 @@
 import { prisma } from "@/lib/prisma";
+import {
+  computeCarryForwardAnnualExpiry,
+  computeCarryForwardHolidayExpiry,
+} from "@/lib/carry-forward-expiry";
 
 function toInt(x: unknown) {
   const n = typeof x === "number" ? x : Number(x);
   return Number.isFinite(n) ? Math.trunc(n) : 0;
 }
 
-function computeAnnualCarryExpiry(
-  employeeStartDate: Date | null | undefined,
-  year: number
-) {
-  const base = employeeStartDate
-    ? new Date(employeeStartDate)
-    : new Date(`${year}-01-01T00:00:00.000Z`);
-  const expiry = new Date(base);
-  expiry.setFullYear(year);
-  return expiry;
-}
-
-function computeHolidayCarryExpiry(year: number) {
-  // Policy: carry-forward holiday expires within the same year (Sep 30 of that year)
-  return new Date(`${year}-09-30T00:00:00.000Z`);
-}
+// (expiry helpers moved to lib/carry-forward-expiry.ts)
 
 export async function ensureLeaveRightsForYear(
   employeeId: number,
@@ -54,11 +43,11 @@ export async function ensureLeaveRightsForYear(
   const carryForwardAnnual = toInt(prev?.vacationLeave ?? 0);
   const carryForwardHoliday = toInt(prev?.holidayLeave ?? 0);
 
-  const carryForwardAnnualExpiry = computeAnnualCarryExpiry(
+  const carryForwardAnnualExpiry = computeCarryForwardAnnualExpiry(
     employee.startDate,
     year
   );
-  const carryForwardHolidayExpiry = computeHolidayCarryExpiry(year);
+  const carryForwardHolidayExpiry = computeCarryForwardHolidayExpiry(year);
 
   const rights = await prisma.leaveRights.upsert({
     where: { employeeId_year: { employeeId, year } },

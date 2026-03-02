@@ -69,20 +69,20 @@ export default function MePage() {
     const handleBack = () => router.back();
 
     return (
-        <main className="min-h-[calc(100vh-80px)]">
+        <main className="min-h-[calc(100vh-80px)] text-gray-900 dark:text-white">
             <div className="mx-auto w-full max-w-5xl px-4 sm:px-6 lg:px-8 py-8">
                 <header className="mb-6 flex items-center gap-4">
                     <button
                         type="button"
                         onClick={handleBack}
-                        className="shrink-0 inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm border border-white/15 bg-white/5 hover:bg-white/10 transition"
+                        className="shrink-0 inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm border border-white/15 bg-white/5 hover:bg-white/10 transition text-gray-900 dark:text-white"
                     >
                         ← ย้อนกลับ
                     </button>
 
                     <div>
-                        <h1 className="text-xl sm:text-2xl font-semibold tracking-tight">My Account</h1>
-                        <p className="text-sm text-white/70">จัดการข้อมูลบัญชี และเปลี่ยนรหัสผ่าน</p>
+                        <h1 className="text-xl sm:text-2xl font-semibold tracking-tight text-gray-900 dark:text-white">My Account</h1>
+                        <p className="text-sm text-gray-700 dark:text-white/70">จัดการข้อมูลบัญชี และเปลี่ยนรหัสผ่าน</p>
                     </div>
                 </header>
 
@@ -92,7 +92,7 @@ export default function MePage() {
                         <div className="flex items-start justify-between gap-3">
                             <div>
                                 <h2 className="text-base font-semibold">Session</h2>
-                                <p className="text-xs text-white/70 mt-1">สถานะการเข้าสู่ระบบ</p>
+                                <p className="text-xs text-gray-700 dark:text-white/70 mt-1">สถานะการเข้าสู่ระบบ</p>
                             </div>
                             <span
                                 className={[
@@ -106,18 +106,18 @@ export default function MePage() {
 
                         <div className="mt-4 space-y-2 text-sm">
                             <div className="flex justify-between gap-3">
-                                <span className="text-white/60">User</span>
+                                <span className="text-gray-700 dark:text-white/60">User</span>
                                 <span className="truncate max-w-[65%] text-right">
                                     {session?.user?.name ?? session?.user?.email ?? "-"}
                                 </span>
                             </div>
                             <div className="flex justify-between gap-3">
-                                <span className="text-white/60">Email</span>
+                                <span className="text-gray-700 dark:text-white/60">Email</span>
                                 <span className="truncate max-w-[65%] text-right">{session?.user?.email ?? "-"}</span>
                             </div>
                         </div>
 
-                        <p className="mt-4 text-xs text-white/60 leading-relaxed">
+                        <p className="mt-4 text-xs text-gray-600 dark:text-white/60 leading-relaxed">
                             แนะนำ: หลังเปลี่ยนรหัสผ่าน อาจต้องออกจากระบบและเข้าใหม่
                         </p>
                     </div>
@@ -126,13 +126,13 @@ export default function MePage() {
                     <div className="neon-card rounded-2xl p-5 lg:col-span-2 border border-white/10 bg-white/5 backdrop-blur">
                         <div className="mb-4">
                             <h2 className="text-base font-semibold">Change Password</h2>
-                            <p className="text-xs text-white/70 mt-1">กรอกรหัสปัจจุบันและตั้งรหัสใหม่</p>
+                            <p className="text-xs text-gray-700 dark:text-white/70 mt-1">กรอกรหัสปัจจุบันและตั้งรหัสใหม่</p>
                         </div>
 
                         <form onSubmit={onChangePassword} className="space-y-4">
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                 <div className="sm:col-span-2">
-                                    <label className="block text-sm font-medium text-white/90 mb-1">
+                                    <label className="block text-sm font-medium text-gray-900 dark:text-white/90 mb-1">
                                         รหัสผ่านปัจจุบัน
                                     </label>
                                     <input
@@ -147,7 +147,7 @@ export default function MePage() {
                                     />
                                 </div>
                                 <div>
-                                    <label className="block text-sm font-medium text-white/90 mb-1">
+                                    <label className="block text-sm font-medium text-gray-900 dark:text-white/90 mb-1">
                                         รหัสผ่านใหม่
                                     </label>
                                     <input
@@ -162,7 +162,7 @@ export default function MePage() {
                                     />
                                 </div>
                                 <div>
-                                    <label className="block text-sm font-medium text-white/90 mb-1">
+                                    <label className="block text-sm font-medium text-gray-900 dark:text-white/90 mb-1">
                                         ยืนยันรหัสผ่านใหม่
                                     </label>
                                     <input
@@ -178,8 +178,8 @@ export default function MePage() {
                                 </div>
                             </div>
                             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pt-1">
-                                <p className="text-xs text-white/60">
-                                    ระบบจะตรวจรหัสปัจจุบันก่อน และบันทึกเป็น <span className="text-white/80">passwordHash</span>
+                                <p className="text-xs text-gray-600 dark:text-white/60">
+                                    ระบบจะตรวจรหัสปัจจุบันก่อน และบันทึกเป็น <span className="text-gray-700 dark:text-white/80">passwordHash</span>
                                 </p>
 
                                 <div className="flex w-full sm:w-auto gap-3">

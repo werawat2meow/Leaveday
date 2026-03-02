@@ -47,6 +47,10 @@ type EmployeeForm = {
   departmentId?: number;
   divisionId?: number;
   unitId?: number;
+
+  // ✅ ยอดยกมา (เก็บลง LeaveRights)
+  carryForwardAnnual?: number;
+  carryForwardHoliday?: number;
 };
 
 function mapEmployeeToForm(e: any): EmployeeForm {
@@ -113,7 +117,9 @@ function toDbPath(u?: string | null) {
 
 export default function ProfileSettingsPage() {
 
-    const [form, setForm] = useState<any>({
+  const rightsYear = new Date().getFullYear();
+
+  const [form, setForm] = useState<EmployeeForm>({
     id: null,
     empNo: "",
     firstName: "",
@@ -123,6 +129,9 @@ export default function ProfileSettingsPage() {
     departmentId: undefined,
     divisionId: undefined,
     unitId: undefined,
+
+    carryForwardAnnual: 0,
+    carryForwardHoliday: 0,
   });
   // เพิ่ม state สำหรับ approverIds และ approvers
   const [approverIds, setApproverIds] = useState<number[]>([]);
@@ -213,6 +222,7 @@ export default function ProfileSettingsPage() {
   const router = useRouter();
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
+  const originalPhotoUrlRef = useRef<string>("");
   const inputRef = useRef<HTMLInputElement>(null);
   const [organizations, setOrganizations] = useState<any[]>([]);
   const [departments, setDepartments] = useState<any[]>([]);
@@ -256,6 +266,26 @@ export default function ProfileSettingsPage() {
   const importInputRef = useRef<HTMLInputElement>(null);
   const setF = (patch: Partial<EmployeeForm>) =>
     setForm((prev: EmployeeForm) => ({ ...prev, ...patch }));
+
+  async function loadCarryForwardForEmployee(employeeId: number) {
+    try {
+      const params = new URLSearchParams({
+        employeeId: String(employeeId),
+        year: String(rightsYear),
+      });
+      const resp = await fetch(`/api/leave-rights?${params.toString()}`, {
+        cache: "no-store",
+      });
+      const data = await resp.json().catch(() => null);
+      const rights = data?.data;
+      setF({
+        carryForwardAnnual: Number(rights?.carryForwardAnnual ?? 0),
+        carryForwardHoliday: Number(rights?.carryForwardHoliday ?? 0),
+      });
+    } catch {
+      setF({ carryForwardAnnual: 0, carryForwardHoliday: 0 });
+    }
+  }
 
   // --- useEffect สำหรับ dropdown ---
   // โหลดรายชื่อสังกัด (Organization) ตอน mount
@@ -327,6 +357,7 @@ export default function ProfileSettingsPage() {
     if (e._raw) {
       const newForm = mapEmployeeToForm(e._raw);
       setForm(newForm);
+      originalPhotoUrlRef.current = newForm.photoUrl ?? "";
       // โหลด dropdown แบบ chain เพื่อให้แสดงค่าที่เลือกไว้ถูกต้อง
       if (newForm.orgId) {
         fetch(`/api/organizations/${newForm.orgId}/departments`)
@@ -377,6 +408,13 @@ export default function ProfileSettingsPage() {
       );
       setApprovers(pool);
       setApproverIds(assignedIds);
+
+      // โหลดยอดยกมา (ปีปัจจุบัน) จาก LeaveRights
+      if (newForm.id) {
+        await loadCarryForwardForEmployee(Number(newForm.id));
+      } else {
+        setF({ carryForwardAnnual: 0, carryForwardHoliday: 0 });
+      }
     } else {
       const parts = (e.name || "").trim().split(/\s+/);
       const first = parts[0] ?? "";
@@ -401,15 +439,21 @@ export default function ProfileSettingsPage() {
             const pool = await loadApproverPool(full?.orgId, full?.departmentId, full?.divisionId, full?.unitId);
             setApprovers(pool);
             setApproverIds(fetchedIds);
+
+            // โหลดยอดยกมา (ปีปัจจุบัน) จาก LeaveRights
+            await loadCarryForwardForEmployee(Number(e.id));
           } else {
             setApproverIds([]);
+            setF({ carryForwardAnnual: 0, carryForwardHoliday: 0 });
           }
         } catch (err) {
           console.warn("[FETCH_EMP_APPROVERS]", err);
           setApproverIds([]);
+          setF({ carryForwardAnnual: 0, carryForwardHoliday: 0 });
         }
       } else {
         setApproverIds([]);
+        setF({ carryForwardAnnual: 0, carryForwardHoliday: 0 });
       }
     }
 
@@ -438,7 +482,9 @@ export default function ProfileSettingsPage() {
 
     setSaving(true);
     try {
-      let photoUrlForDb = form.photoUrl ?? null;
+      // ส่ง photoUrl เฉพาะเมื่อ “มีการเปลี่ยนรูปจริง ๆ” หรือ “สั่งลบรูป”
+      // ถ้าไม่ได้แตะรูปเลย จะไม่ส่ง field นี้ขึ้น API เพื่อกันการลบไฟล์/เขียนทับผิดพลาด
+      let photoUrlForDb: string | null | "" = null;
 
       if (photoFile) {
         const fd = new FormData();
@@ -451,20 +497,38 @@ export default function ProfileSettingsPage() {
         }
         photoUrlForDb = upData.url as string;
       } else {
-        // ✅ แปลง URL เต็มเป็น path ก่อนบันทึก
-        photoUrlForDb = toDbPath(photoUrlForDb);
+        const current = (form.photoUrl ?? "").trim();
+        const original = (originalPhotoUrlRef.current ?? "").trim();
+
+        if (current === original) {
+          // keep: ไม่ส่ง photoUrl
+          photoUrlForDb = null;
+        } else if (current === "") {
+          // explicit delete
+          photoUrlForDb = "";
+        } else if (/^https?:\/\//i.test(current) || current.startsWith("/uploads/")) {
+          // keep URL/path as-is (รองรับ Supabase public URL)
+          photoUrlForDb = current;
+        } else {
+          // local filename/path-ish -> convert to /uploads/... when possible
+          photoUrlForDb = toDbPath(current) ?? current;
+        }
       }
 
-      const payload = {
+      const payload: any = {
         ...form,
         org: organizations.find((x) => x.id === form.orgId)?.name || "",
         department:
           departments.find((x) => x.id === form.departmentId)?.name || "",
         division: divisions.find((x) => x.id === form.divisionId)?.name || "",
         unit: units.find((x) => x.id === form.unitId)?.name || "",
-        photoUrl: photoUrlForDb,
         approverIds, // เพิ่มตรงนี้
       };
+
+      // รวม photoUrl เฉพาะเมื่อมีการเปลี่ยนแปลงหรือเป็นคำสั่งลบ ("" หรือ path)
+      if (photoUrlForDb !== null) {
+        payload.photoUrl = photoUrlForDb;
+      }
       const isEdit = !!form.id;
       const url = isEdit ? `/api/employees?id=${form.id}` : "/api/employees";
       const method = isEdit ? "PUT" : "POST";
@@ -483,6 +547,7 @@ export default function ProfileSettingsPage() {
 
       const newForm = mapEmployeeToForm(data);
       setForm(newForm);
+      originalPhotoUrlRef.current = newForm.photoUrl ?? "";
       // determine assigned ids from response or fetch
       let assignedIds: number[] = [];
       if (Array.isArray(data?.approvers)) {
@@ -503,6 +568,11 @@ export default function ProfileSettingsPage() {
       const pool = await loadApproverPool(newForm.orgId, newForm.departmentId, newForm.divisionId, newForm.unitId);
       setApprovers(pool);
       setApproverIds(assignedIds);
+
+      // โหลด/สะท้อนยอดยกมาที่เพิ่งบันทึก (ปีปัจจุบัน)
+      if (newForm.id) {
+        await loadCarryForwardForEmployee(Number(newForm.id));
+      }
       // โหลด dropdown ตาม id ที่ได้มาใหม่
       if (newForm.orgId) {
         fetch(`/api/organizations/${newForm.orgId}/departments`)
@@ -605,9 +675,13 @@ export default function ProfileSettingsPage() {
       birthdayDays: 0,
       annualHolidays: 0,
       photoUrl: "",
+
+      carryForwardAnnual: 0,
+      carryForwardHoliday: 0,
     });
     setPhotoFile(null);
     setPhotoUrl(null);
+    originalPhotoUrlRef.current = "";
     if (inputRef.current) inputRef.current.value = "";
     setApproverIds([]);
   }
@@ -939,6 +1013,44 @@ export default function ProfileSettingsPage() {
             value={form.photoUrl ?? ""}
             onChange={(v) => setF({ photoUrl: v })}
           />
+
+          {/* ✅ Carry Forward */}
+          <label className="block min-w-0">
+            <span className="mb-1 block text-sm whitespace-normal break-words">
+              ยอดยกวันหยุดพักร้อน (Carry Forward)
+            </span>
+            <input
+              type="number"
+              min={0}
+              step={0.5}
+              value={Number(form.carryForwardAnnual ?? 0)}
+              onChange={(e) =>
+                setF({
+                  carryForwardAnnual:
+                    e.target.value === "" ? 0 : Number(e.target.value),
+                })
+              }
+              className="neon-input w-full rounded-xl p-3"
+            />
+          </label>
+          <label className="block min-w-0">
+            <span className="mb-1 block text-sm whitespace-normal break-words">
+              ยอดยกวันหยุดนักขัต (Carry Forward)
+            </span>
+            <input
+              type="number"
+              min={0}
+              step={0.5}
+              value={Number(form.carryForwardHoliday ?? 0)}
+              onChange={(e) =>
+                setF({
+                  carryForwardHoliday:
+                    e.target.value === "" ? 0 : Number(e.target.value),
+                })
+              }
+              className="neon-input w-full rounded-xl p-3"
+            />
+          </label>
 
           {/* Multi-select Approver */}
           <label className="block">

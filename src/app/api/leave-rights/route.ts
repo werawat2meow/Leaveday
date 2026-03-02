@@ -1,10 +1,34 @@
 import { prisma } from "@/lib/prisma";
 import { NextResponse } from "next/server";
+import {
+  computeCarryForwardAnnualExpiry,
+  computeCarryForwardHolidayExpiry,
+} from "@/lib/carry-forward-expiry";
 
 // GET: ดึง leave rights template ทั้งหมด (สิทธิ์การลาตามตำแหน่ง default)
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const prefix = searchParams.get("prefix");
+
+  // Optional: fetch LeaveRights for an employee/year (used by admin settings UI)
+  const employeeIdRaw = searchParams.get("employeeId");
+  if (employeeIdRaw) {
+    const employeeId = Number(employeeIdRaw);
+    const year = Number(searchParams.get("year") || new Date().getFullYear());
+
+    if (!Number.isFinite(employeeId) || employeeId <= 0) {
+      return NextResponse.json({ error: "invalid employeeId" }, { status: 400 });
+    }
+    if (!Number.isFinite(year) || year < 2000 || year > 2100) {
+      return NextResponse.json({ error: "invalid year" }, { status: 400 });
+    }
+
+    const rights = await prisma.leaveRights.findUnique({
+      where: { employeeId_year: { employeeId, year } },
+    });
+    return NextResponse.json({ ok: true, data: rights });
+  }
+
   if (prefix) {
     const template = await prisma.leaveRightsTemplate.findFirst({
       where: { prefix },
@@ -108,16 +132,13 @@ export async function POST(req: Request) {
     // In this codebase: vacationLeave / holidayLeave are decremented on approval and represent remaining.
     const carryForwardAnnual = lastYearRights?.vacationLeave ?? 0;
     const carryForwardHoliday = lastYearRights?.holidayLeave ?? 0;
-    const employee = await prisma.employee.findUnique({
-      where: { id: employeeId },
-    });
-    const startDate = employee?.startDate
-      ? new Date(employee.startDate)
-      : new Date(`${year}-01-01`);
-    const carryForwardAnnualExpiry = new Date(startDate);
-    carryForwardAnnualExpiry.setFullYear(year);
+    const employee = await prisma.employee.findUnique({ where: { id: employeeId } });
 
-    const carryForwardHolidayExpiry = new Date(`${year}-09-30T00:00:00.000Z`);
+    const carryForwardAnnualExpiry = computeCarryForwardAnnualExpiry(
+      employee?.startDate ? new Date(employee.startDate) : null,
+      year
+    );
+    const carryForwardHolidayExpiry = computeCarryForwardHolidayExpiry(year);
 
     // สร้าง LeaveRights สำหรับปีใหม่
     const newRights = await prisma.leaveRights.upsert({

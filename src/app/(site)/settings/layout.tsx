@@ -33,6 +33,9 @@ export default function SettingsLayout({ children }: { children: ReactNode }) {
             <Tab href="/settings/orgs" active={active("orgs")}>
               ตั้งค่าหน่วยงาน
             </Tab>
+            <Tab href="/settings/blackouts" active={active("blackouts")}>
+              ปิดวันลา
+            </Tab>
             <a
               className="rounded-lg px-4 py-2 bg-rose-600 text-white hover:bg-rose-700 border border-rose-700 dark:bg-rose-500/80 dark:text-white dark:hover:bg-rose-500"
               href="/manual/Admin.pdf"

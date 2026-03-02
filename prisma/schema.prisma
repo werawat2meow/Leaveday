@@ -42,6 +42,13 @@ enum LeaveSession {
   PM     // ครึ่งบ่าย
 }
 
+enum BlackoutTargetType {
+  ORG
+  DEPARTMENT
+  DIVISION
+  UNIT
+}
+
 // ---- Models ----
 model User {
   id           Int     @id @default(autoincrement())
@@ -277,6 +284,51 @@ model Unit {
   divisionId Int
   employees  Employee[] @relation("UnitToEmployee")
   approvers  Approver[] @relation("UnitToApprover")
+}
+
+model LeaveBlackout {
+  id        Int      @id @default(autoincrement())
+  startDate DateTime // ใช้เป็น date (เต็มวัน)
+  endDate   DateTime // ใช้เป็น date (เต็มวัน)
+  reason    String?
+  active    Boolean  @default(true)
+
+  // ถ้า true = ปิดทุกประเภทการลา
+  allKinds Boolean @default(true)
+
+  targets LeaveBlackoutTarget[]
+  kinds   LeaveBlackoutKind[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([active, startDate, endDate])
+}
+
+model LeaveBlackoutTarget {
+  id Int @id @default(autoincrement())
+
+  blackout   LeaveBlackout @relation(fields: [blackoutId], references: [id], onDelete: Cascade)
+  blackoutId Int
+
+  targetType BlackoutTargetType
+  targetId   Int
+
+  @@unique([blackoutId, targetType, targetId], name: "uniq_blackout_target")
+  @@index([blackoutId])
+  @@index([targetType, targetId])
+}
+
+model LeaveBlackoutKind {
+  id Int @id @default(autoincrement())
+
+  blackout   LeaveBlackout @relation(fields: [blackoutId], references: [id], onDelete: Cascade)
+  blackoutId Int
+
+  kind LeaveKind
+
+  @@unique([blackoutId, kind], name: "uniq_blackout_kind")
+  @@index([blackoutId])
 }
 
 
