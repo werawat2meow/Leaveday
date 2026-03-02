@@ -34,7 +34,7 @@ const LEAVE_TYPES: Array<{ label: string; kind: LeaveKind }> = [
   { label: "Birthday Leave", kind: "BIRTHDAY" },
   { label: "Monkhood Leave", kind: "ORDAIN" },
   { label: "Maternity Leave", kind: "MATERNITY" },
-  { label: "Annual Holiday Leave", kind: "ANNUAL_HOLIDAY" }, // ลาโดยใช้วันหยุดประจำปี
+  { label: "Public Holiday Leave", kind: "ANNUAL_HOLIDAY" }, // ลาโดยใช้วันหยุดประจำปี
   // ซ่อนไว้ก่อน - ยังไม่มีการใช้งาน
   // { label: "Shift Change",        kind: "SHIFT_CHANGE" },
   // { label: "Holiday Change",      kind: "HOLIDAY_CHANGE" },
@@ -349,6 +349,57 @@ export default function LeavePage() {
   const [submitting, setSubmitting] = useState(false);
   const [agree, setAgree] = useState(false);
 
+  const [blackoutChecking, setBlackoutChecking] = useState(false);
+  const [blackoutError, setBlackoutError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const kind = leave.leaveType;
+    const startDate = leave.fromDate;
+    const endDate = leave.toDate;
+
+    if (!kind || !startDate || !endDate) {
+      setBlackoutError(null);
+      return;
+    }
+
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    if (isNaN(+start) || isNaN(+end) || start > end) {
+      setBlackoutError(null);
+      return;
+    }
+
+    const ctrl = new AbortController();
+    (async () => {
+      try {
+        setBlackoutChecking(true);
+        const res = await fetch("/api/blackouts/check", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          signal: ctrl.signal,
+          body: JSON.stringify({ kind, startDate, endDate }),
+        });
+        const json = await res.json().catch(() => null);
+        if (!res.ok || !json?.ok) {
+          setBlackoutError(null);
+          return;
+        }
+        if (json.conflict) setBlackoutError(json.message || "ช่วงวันที่เลือกถูกปิดรับการลา");
+        else setBlackoutError(null);
+      } catch (e: any) {
+        if (e?.name === "AbortError") return;
+        setBlackoutError(null);
+      } finally {
+        setBlackoutChecking(false);
+      }
+    })();
+
+    return () => {
+      if (!ctrl.signal.aborted) ctrl.abort();
+    };
+  }, [leave.leaveType, leave.fromDate, leave.toDate]);
+
   // คำนวณจำนวนวันลาแบบง่าย (รวมเสาร์อาทิตย์ไว้ก่อน)
   const totalDays = useMemo(() => {
     if (!leave.fromDate || !leave.toDate) return 0;
@@ -373,6 +424,7 @@ export default function LeavePage() {
     if (!emp.empNo || !emp.name) return "กรอกข้อมูลพนักงาน (รหัส/ชื่อ)";
     if (!leave.leaveType) return "เลือกประเภทการลา";
     if (!leave.fromDate || !leave.toDate) return "ระบุช่วงวันที่ลา";
+    if (blackoutError) return blackoutError;
 
     // เช็คอายุงานสำหรับลาประจำปี (ANNUAL)
     if (leave.leaveType === "ANNUAL" && me && me.employee.startDate) {
@@ -1010,6 +1062,14 @@ export default function LeavePage() {
               </label>
             </div>
 
+            {blackoutError ? (
+              <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 dark:border-rose-500/30 dark:bg-rose-950/25 dark:text-rose-200">
+                {blackoutError}
+              </div>
+            ) : blackoutChecking ? (
+              <div className="text-sm text-[var(--muted)]">กำลังตรวจสอบวันปิด…</div>
+            ) : null}
+
             <div className="flex flex-col sm:flex-row justify-end gap-2 sm:gap-3 pt-2">
               <button
                 type="button"
@@ -1020,7 +1080,7 @@ export default function LeavePage() {
               </button>
               <button
                 type="submit"
-                disabled={submitting || !leave.leaveType}
+                disabled={submitting || !leave.leaveType || blackoutChecking || !!blackoutError}
                 className="rounded-xl px-4 sm:px-5 py-2 font-semibold bg-[var(--cyan)] text-[#001418] shadow-[0_10px_28px_var(--cyan-soft)] disabled:opacity-50 text-sm sm:text-base order-1 sm:order-2 whitespace-nowrap"
               >
                 {submitting
