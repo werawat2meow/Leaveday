@@ -70,7 +70,7 @@ export async function GET() {
     if (session.user.email) {
       employee = await prisma.employee.findFirst({
         where: { email: session.user.email! },
-        include: { approvers: true },
+        include: includeOrgTree,
       });
       console.log(
         `Attempted to find employee by email: "${session.user.email}". Found: ${
@@ -88,6 +88,7 @@ export async function GET() {
         // ตรวจสอบว่าเป็นตัวเลขที่ถูกต้อง
         employee = await prisma.employee.findFirst({
           where: { userId: userIdFromSession },
+          include: includeOrgTree,
         });
         console.log(
           `Attempted to find employee by userId: ${userIdFromSession}. Found: ${
@@ -307,6 +308,14 @@ export async function GET() {
         levelP: employee.levelP ?? "",
         idCard: employee.idCard ?? "",
         photoUrl: employee.photoUrl ?? null,
+
+        weeklyHoliday:
+          employee.weeklyHoliday ??
+          employee.weeklyOffDay ??
+          employee.weeklyOff ??
+          employee.weekOffDay ??
+          null,
+          
         approvers: (employee.approvers || []).map((a: any) => ({
           id: a.id,
           firstNameTh: a.firstNameTh ?? a.firstName ?? "",

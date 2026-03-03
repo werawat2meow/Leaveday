@@ -9,6 +9,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import DatePicker, { registerLocale } from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
+import { countBusinessDays, normalizeSession } from "@/lib/leave-utils";
 
 registerLocale("th", th);
 
@@ -54,6 +55,7 @@ type EmployeeForm = {
   email: string;
   idCard: string;
   photoUrl?: string;
+  weeklyHoliday?: string;
 };
 
 type LeaveForm = {
@@ -94,6 +96,9 @@ type MeResponse = {
     idCard?: string | null;
     photoUrl?: string | null;
     startDate?: string | null;
+
+    weeklyHoliday?: string | null; // ✅ ADD (ถ้า API ส่งมา)
+    weeklyOffDay?: string | null;
   };
   rights: {
     levelFrom: string | null;
@@ -339,6 +344,7 @@ export default function LeavePage() {
     Nametitle: "นาย",
     email: "",
     idCard: "",
+    weeklyHoliday: "",
   });
   // ตรวจสอบเพศจาก Nametitle (รองรับไทย/อังกฤษ) - ต้องอยู่หลังประกาศ emp
   const nametitle = (emp?.Nametitle ?? "").trim().toLowerCase();
@@ -351,6 +357,12 @@ export default function LeavePage() {
 
   const [blackoutChecking, setBlackoutChecking] = useState(false);
   const [blackoutError, setBlackoutError] = useState<string | null>(null);
+
+    const [holidays, setHolidays] = useState<
+    Array<{ id: number; title: string; date: string; note?: string | null }>
+  >([]);
+  const [loadingHolidays, setLoadingHolidays] = useState(false);
+  const [holidaysError, setHolidaysError] = useState<string | null>(null);
 
   useEffect(() => {
     const kind = leave.leaveType;
@@ -400,16 +412,30 @@ export default function LeavePage() {
     };
   }, [leave.leaveType, leave.fromDate, leave.toDate]);
 
+  const holidaysSet = useMemo(() => {
+    return new Set(
+      (holidays || [])
+        .map((h) => String(h.date || "").slice(0, 10))
+        .filter(Boolean)
+    );
+  }, [holidays]);
+
   // คำนวณจำนวนวันลาแบบง่าย (รวมเสาร์อาทิตย์ไว้ก่อน)
   const totalDays = useMemo(() => {
     if (!leave.fromDate || !leave.toDate) return 0;
-    const a = new Date(leave.fromDate);
-    const b = new Date(leave.toDate);
-    if (isNaN(+a) || isNaN(+b) || a > b) return 0;
-    const diff = Math.round((+b - +a) / (1000 * 60 * 60 * 24)) + 1;
-    if (leave.session?.includes("Half")) return Math.max(diff - 1 + 0.5, 0.5);
-    return diff;
-  }, [leave.fromDate, leave.toDate, leave.session]);
+
+    const from = parseISO(leave.fromDate);
+    const to = parseISO(leave.toDate);
+    if (isNaN(+from) || isNaN(+to) || to < from) return 0;
+
+    return countBusinessDays(
+      from,
+      to,
+      normalizeSession(leave.session),
+      holidaysSet,
+      emp.weeklyHoliday || undefined
+    );
+  }, [leave.fromDate, leave.toDate, leave.session, holidaysSet, emp.weeklyHoliday]);
 
   const isEditingMode = typeof editingLeaveId === "number";
 
@@ -443,7 +469,7 @@ export default function LeavePage() {
         leaveUsed?.holidayAvailableNow ?? leaveUsed?.totalRemainHoliday ?? 0
       );
       if (availableNow < totalDays) {
-        return `Annual Holiday ใช้ได้ไม่พอ ณ ตอนนี้ (ใช้ได้ ${availableNow} วัน)`;
+        return `Public Holiday ใช้ได้ไม่พอ ณ ตอนนี้ (ใช้ได้ ${availableNow} วัน)`;
       }
     }
 
@@ -597,11 +623,7 @@ export default function LeavePage() {
     };
   }, []);
 
-  const [holidays, setHolidays] = useState<
-    Array<{ id: number; title: string; date: string; note?: string | null }>
-  >([]);
-  const [loadingHolidays, setLoadingHolidays] = useState(false);
-  const [holidaysError, setHolidaysError] = useState<string | null>(null);
+
 
   useEffect(() => {
     const ctrl = new AbortController();
@@ -689,6 +711,14 @@ export default function LeavePage() {
           email: raw.employee.email ?? s.email,
           idCard: raw.employee.idCard ?? s.idCard,
           photoUrl: raw.employee.photoUrl ?? s.photoUrl,
+
+            weeklyHoliday:
+            raw.employee.weeklyHoliday ??
+            raw.employee.weeklyOffDay ??
+            raw.employee.weeklyOff ??
+            raw.employee.weekOffDay ??
+            s.weeklyHoliday ??
+            "",
         }));
 
         setMe(raw);
