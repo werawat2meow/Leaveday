@@ -315,7 +315,7 @@ export async function GET() {
           employee.weeklyOff ??
           employee.weekOffDay ??
           null,
-          
+
         approvers: (employee.approvers || []).map((a: any) => ({
           id: a.id,
           firstNameTh: a.firstNameTh ?? a.firstName ?? "",
@@ -327,6 +327,59 @@ export async function GET() {
     });
   } catch (e: any) {
     console.error("GET /api/employees/me error:", e);
+    return NextResponse.json(
+      { error: e?.message || "internal_error" },
+      { status: 500 }
+    );
+  }
+}
+
+export async function PATCH(req: Request) {
+  try {
+    const session = await getServerSession(authOptions);
+    const email = session?.user?.email;
+    if (!email) {
+      return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    }
+
+    const body = await req.json().catch(() => ({}));
+    const weeklyHoliday = body.weeklyHoliday;
+
+    // ตรวจความถูกต้องเล็กน้อย
+    const allowed = [
+      "",
+      "จันทร์",
+      "อังคาร",
+      "พุธ",
+      "พฤหัสบดี",
+      "ศุกร์",
+      "เสาร์",
+      "อาทิตย์",
+      "Monday",
+      "Tuesday",
+      "Wednesday",
+      "Thursday",
+      "Friday",
+      "Saturday",
+      "Sunday",
+    ];
+    if (weeklyHoliday != null && !allowed.includes(weeklyHoliday)) {
+      return NextResponse.json(
+        { error: "invalid weeklyHoliday" },
+        { status: 400 }
+      );
+    }
+
+    const updated = await prisma.employee.update({
+      where: { email },
+      data: { weeklyHoliday: weeklyHoliday || null },
+    });
+
+    return NextResponse.json({
+      employee: { weeklyHoliday: updated.weeklyHoliday },
+    });
+  } catch (e: any) {
+    console.error("PATCH /api/employees/me error:", e);
     return NextResponse.json(
       { error: e?.message || "internal_error" },
       { status: 500 }
