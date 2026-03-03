@@ -312,7 +312,7 @@ export default function ApprovalsPage() {
       const empNo = employee?.empNo || "";
       const hitQ =
         !q ||
-        [empNo, name, r.kind, r.reason || ""]
+        [empNo, name, r.kind, formatKind(r.kind), r.reason || ""]
           .join(" ")
           .toLowerCase()
           .includes(q.toLowerCase());
@@ -670,7 +670,7 @@ export default function ApprovalsPage() {
                         {empNo} • {org}
                       </div>
                     </Td>
-                    <Td className=" text-center">{r.kind}</Td>
+                    <Td className=" text-center">{formatKind(r.kind)}</Td>
                     <Td className=" text-center">
                       {fmtDate(r.startDate)} – {fmtDate(r.endDate)}
                       <div className="text-xs text-slate-500 dark:text-slate-400 line-clamp-1">
@@ -765,7 +765,7 @@ export default function ApprovalsPage() {
                         label="Level P"
                         value={employee?.levelP || "-"}
                       />
-                      <ReadField label="ประเภทลา" value={selected.kind} />
+                      <ReadField label="ประเภทลา" value={formatKind(selected.kind)} />
                       <ReadField
                         label="วันที่ลา"
                         value={`${fmtDate(selected.startDate)} - ${fmtDate(
@@ -1220,6 +1220,24 @@ function StatusBadge({ status }: { status: LeaveStatus }) {
       {label}
     </span>
   );
+}
+
+function formatKind(kind: string) {
+  switch (kind) {
+    case "ANNUAL":
+      return "Annual";
+    case "ANNUAL_HOLIDAY":
+      return "Public holiday"; // คำที่ต้องการให้ลูกค้าดู
+    case "SICK":
+      return "Sick";
+    case "UNPAID":
+      return "Unpaid";
+    case "ORDIN":
+      return "Ordain";
+    // เพิ่มกรณีอื่นตามที่มีในระบบ
+    default:
+      return kind.replace(/_/g, " ").toLowerCase();
+  }
 }
 
 /* ---------------- Utils ---------------- */

@@ -43,6 +43,24 @@ export default function LeaveHistoryModal({
 
   if (!open) return null;
 
+  const formatType = (type: string) => {
+    switch (type) {
+      case "ANNUAL":
+        return "Annual";          // หรือ "พักร้อน" ถ้าจะภาษาไทย
+      case "ANNUAL_HOLIDAY":
+        return "Public holiday";   // <-- เปลี่ยนตามที่ลูกค้าขอ
+      case "SICK":
+        return "Sick";
+      case "UNPAID":
+        return "Unpaid";
+      case "ORDIN":
+        return "Ordain";
+      default:
+        // fallback: แปลง `_` เป็นช่องว่าง ลงพิมพ์เล็ก
+        return type.replace(/_/g, " ").toLowerCase();
+    }
+  };
+
   return (
     <div
       className="fixed inset-0 z-[100] grid place-items-center bg-black/60 backdrop-blur-sm"
@@ -142,7 +160,7 @@ export default function LeaveHistoryModal({
                           {r.no}
                         </td>
                         <td className="px-3 py-2 text-center whitespace-nowrap">
-                          {r.type || "-"}
+                          {formatType(r.type) || "-"}
                         </td>
                         <td className="px-3 py-2 text-center tabular-nums whitespace-nowrap">
                           {r.range || "-"}
