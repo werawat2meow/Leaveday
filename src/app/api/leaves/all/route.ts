@@ -10,19 +10,93 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: "unauthorized" }, { status: 401 });
     }
 
-    // รับ department จาก query param (เช่น /api/leaves/all?department=xxx)
     const { searchParams } = new URL(req.url);
-    const department = searchParams.get('department');
+
+    const orgFilter = searchParams.get("org") || undefined;
+    const deptFilter = searchParams.get("department") || undefined;
+    const divFilter = searchParams.get("division") || undefined;
+    const unitFilter = searchParams.get("unit") || undefined;
+    const onlyMyApprovalsParam = searchParams.get("onlyMyApprovals");
+    const onlyMyApprovals =
+      onlyMyApprovalsParam === "1" ||
+      onlyMyApprovalsParam === "true" ||
+      onlyMyApprovalsParam === "yes";
+
+    const user = await prisma.user.findUnique({
+      where: { email: session.user.email },
+      include: { employee: true },
+    });
+    if (!user) {
+      return NextResponse.json({ error: "user not found" }, { status: 404 });
+    }
+
+    const isAdmin = user.role === "MASTER_ADMIN";
+
+    const extraFilter: any = {};
+    if (orgFilter) extraFilter.org = orgFilter;
+    if (deptFilter) extraFilter.department = deptFilter;
+    if (divFilter) extraFilter.division = divFilter;
+    if (unitFilter) extraFilter.unit = unitFilter;
 
     let whereCondition: any = {};
-    if (department) {
-      whereCondition.user = {
-        employee: {
-          department: department
+
+    if (isAdmin) {
+      if (Object.keys(extraFilter).length) {
+        whereCondition.user = { employee: extraFilter };
+      }
+    } else {
+      const approver = await prisma.approver.findFirst({
+        where: {
+          OR: [{ email: session.user.email }, { empNo: user.employee?.empNo }],
+        },
+        select: { id: true, orgId: true, org: true },
+      });
+
+      if (!approver) {
+        return NextResponse.json({ ok: true, data: [] });
+      }
+
+      let approverOrgName: string | null = approver.org ?? null;
+      if (!approverOrgName && approver.orgId != null) {
+        const orgRow = await prisma.organization.findUnique({
+          where: { id: approver.orgId },
+          select: { name: true },
+        });
+        approverOrgName = orgRow?.name ?? null;
+      }
+
+      const clause2: any = { approverId: approver.id };
+      if (Object.keys(extraFilter).length) {
+        clause2.user = { employee: extraFilter };
+      }
+
+      if (onlyMyApprovals) {
+        whereCondition = clause2;
+      } else {
+        const orClauses: any[] = [];
+
+        const scopeOr: any[] = [];
+        if (approver.orgId != null) scopeOr.push({ orgId: approver.orgId });
+        if (approverOrgName) scopeOr.push({ org: approverOrgName });
+
+        if (scopeOr.length) {
+          // IMPORTANT: do not allow query filters to expand org scope.
+          if (approverOrgName && orgFilter && orgFilter !== approverOrgName) {
+            // mismatched org filter => no in-scope results
+          } else {
+            const scopeEmployeeWhere =
+              scopeOr.length === 1 ? scopeOr[0] : { OR: scopeOr };
+            const employeeWhere = Object.keys(extraFilter).length
+              ? { AND: [scopeEmployeeWhere, extraFilter] }
+              : scopeEmployeeWhere;
+            orClauses.push({ user: { employee: employeeWhere } });
+          }
         }
-      };
+
+        orClauses.push(clause2);
+        whereCondition = { OR: orClauses };
+      }
     }
-    // ไม่ filter approverId
 
     const leaves = await prisma.leave.findMany({
       where: whereCondition,

@@ -8,7 +8,19 @@ type DayRow = {
   people: DayPeople[];
 };
 
-type Props = { open: boolean; onClose: () => void };
+type FilterParams = {
+  org?: string;
+  department?: string;
+  division?: string;
+  unit?: string;
+};
+
+type Props = {
+  open: boolean;
+  onClose: () => void;
+  filters?: FilterParams;
+  onlyMyApprovals?: boolean;
+};
 
 function pad(n: number) {
   return n.toString().padStart(2, "0");
@@ -24,7 +36,7 @@ function formatMonthTH(month: string) {
   return `${m}/${year}`;
 }
 
-export default function LeaveCalendarModal({ open, onClose }: Props) {
+export default function LeaveCalendarModal({ open, onClose, filters = {}, onlyMyApprovals = false, }: Props) {
   const now = new Date();
   const [month, setMonth] = React.useState(
     () => `${now.getFullYear()}-${pad(now.getMonth() + 1)}`
@@ -32,15 +44,22 @@ export default function LeaveCalendarModal({ open, onClose }: Props) {
   const [loading, setLoading] = React.useState(false);
   const [daysMap, setDaysMap] = React.useState<Record<string, DayRow>>({});
   const [expandedDay, setExpandedDay] = React.useState<string | null>(null);
+  const [onlyMyApprovalsUi, setOnlyMyApprovalsUi] = React.useState<boolean>(() => !!onlyMyApprovals);
 
-  // filter states
   const [fOrg, setFOrg] = React.useState("");
   const [fDept, setFDept] = React.useState("");
   const [fDivision, setFDivision] = React.useState("");
   const [fUnit, setFUnit] = React.useState("");
-  const [opts, setOpts] = React.useState<{ org:string[]; department:string[]; division:string[]; unit:string[] }>({ org: [], department: [], division: [], unit: [] });
+
+  const [opts, setOpts] = React.useState<{
+    org: string[];
+    dept: string[];
+    division: string[];
+    unit: string[];
+  }>({ org: [], dept: [], division: [], unit: [] });
+
+  // internal filter state removed; component now relies solely on the `filters` prop
   const cellRefs = React.useRef<Record<string, HTMLDivElement | null>>({});
-  const [popupAbove, setPopupAbove] = React.useState(false);
   const [isMobile, setIsMobile] = React.useState(false);
   const [popupPos, setPopupPos] = React.useState<{
     left: number;
@@ -48,20 +67,61 @@ export default function LeaveCalendarModal({ open, onClose }: Props) {
     bottom?: number;
   } | null>(null);
 
-  // fetch calendar options once
+  const defaultOrg = filters.org ?? "";
+  const defaultDept = filters.department ?? "";
+  const defaultDivision = filters.division ?? "";
+  const defaultUnit = filters.unit ?? "";
+
+  React.useEffect(() => {
+    if (open) return;
+    setExpandedDay(null);
+    setPopupPos(null);
+  }, [open]);
+
   React.useEffect(() => {
     if (!open) return;
-    fetch(`/api/leaves/calendar-options?month=${encodeURIComponent(month)}`)
+    setOnlyMyApprovalsUi(!!onlyMyApprovals);
+  }, [open, onlyMyApprovals]);
+
+  React.useEffect(() => {
+    if (!open) return;
+    setFOrg(defaultOrg);
+    setFDept(defaultDept);
+    setFDivision(defaultDivision);
+    setFUnit(defaultUnit);
+  }, [open]);
+
+  React.useEffect(() => {
+    if (!open) return;
+
+    const controller = new AbortController();
+    const qs = new URLSearchParams();
+    if (fOrg) qs.set("org", fOrg);
+    if (fDept) qs.set("department", fDept);
+    if (fDivision) qs.set("division", fDivision);
+    if (fUnit) qs.set("unit", fUnit);
+    fetch(`/api/leaves/calendar-options${qs.toString() ? `?${qs.toString()}` : ""}`, {
+      signal: controller.signal,
+    })
       .then((r) => r.json())
       .then((j) => {
-        if (j?.ok) {
-          setOpts({ org: j.org || [], department: j.department || [], division: j.division || [], unit: j.unit || [] });
-        }
+        if (controller.signal.aborted) return;
+        if (!j?.ok) return;
+        setOpts({
+          org: Array.isArray(j.org) ? j.org : [],
+          dept: Array.isArray(j.department) ? j.department : [],
+          division: Array.isArray(j.division) ? j.division : [],
+          unit: Array.isArray(j.unit) ? j.unit : [],
+        });
       })
       .catch(() => {});
-  }, [open, month]);
 
-  // fetch calendar per-month with filters
+    return () => controller.abort();
+  }, [open, fOrg, fDept, fDivision, fUnit]);
+
+  // no longer sync filters into local state
+
+  // fetch calendar per-month using only the filters passed in
   React.useEffect(() => {
     if (!open) return;
     setLoading(true);
@@ -70,6 +130,7 @@ export default function LeaveCalendarModal({ open, onClose }: Props) {
     if (fDept) params.set("department", fDept);
     if (fDivision) params.set("division", fDivision);
     if (fUnit) params.set("unit", fUnit);
+    params.set("onlyMyApprovals", onlyMyApprovalsUi ? "1" : "0");
     fetch(`/api/leaves/calendar?${params.toString()}`)
       .then((res) => res.json())
       .then((json) => {
@@ -80,7 +141,7 @@ export default function LeaveCalendarModal({ open, onClose }: Props) {
         setDaysMap({});
         setLoading(false);
       });
-  }, [open, month, fOrg, fDept, fDivision, fUnit]);
+  }, [open, month, fOrg, fDept, fDivision, fUnit, onlyMyApprovalsUi]);
 
   // detect mobile (for bottom-sheet behaviour)
   React.useEffect(() => {
@@ -209,48 +270,89 @@ export default function LeaveCalendarModal({ open, onClose }: Props) {
           </div>
         </div>
 
-        {/* filters */}
-        <div className="mb-4 grid gap-2 sm:grid-cols-4">
-          <select
-            className="rounded border px-2 py-1 text-sm"
-            value={fOrg}
-            onChange={(e) => setFOrg(e.target.value)}
-          >
-            <option value="">สังกัดทั้งหมด</option>
-            {opts.org.map((o) => (
-              <option key={o} value={o}>{o}</option>
-            ))}
-          </select>
-          <select
-            className="rounded border px-2 py-1 text-sm"
-            value={fDept}
-            onChange={(e) => setFDept(e.target.value)}
-          >
-            <option value="">แผนกทั้งหมด</option>
-            {opts.department.map((o) => (
-              <option key={o} value={o}>{o}</option>
-            ))}
-          </select>
-          <select
-            className="rounded border px-2 py-1 text-sm"
-            value={fDivision}
-            onChange={(e) => setFDivision(e.target.value)}
-          >
-            <option value="">ฝ่ายทั้งหมด</option>
-            {opts.division.map((o) => (
-              <option key={o} value={o}>{o}</option>
-            ))}
-          </select>
-          <select
-            className="rounded border px-2 py-1 text-sm"
-            value={fUnit}
-            onChange={(e) => setFUnit(e.target.value)}
-          >
-            <option value="">หน่วยทั้งหมด</option>
-            {opts.unit.map((o) => (
-              <option key={o} value={o}>{o}</option>
-            ))}
-          </select>
+        <div className="mb-3">
+          <label className="inline-flex items-center px-2 py-1 rounded text-sm blink-bg">
+            <input
+              type="checkbox"
+              checked={onlyMyApprovalsUi}
+              onChange={(e) => setOnlyMyApprovalsUi(e.target.checked)}
+              className="mr-2"
+            />
+            รายชื่อขึ้นตรงกับเรา
+          </label>
+        </div>
+        <div className="mb-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+          <div>
+            <label className="block text-xs sm:text-sm mb-1 text-slate-700 dark:text-white/80">
+              สังกัด
+            </label>
+            <select
+              value={fOrg}
+              onChange={(e) => setFOrg(e.target.value)}
+              className="rounded border px-2 py-1 text-xs sm:text-sm w-full text-black"
+            >
+              <option value="">ทั้งหมด</option>
+              {opts.org.map((o: string) => (
+                <option key={o} value={o}>
+                  {o}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-xs sm:text-sm mb-1 text-slate-700 dark:text-white/80">
+              แผนก
+            </label>
+            <select
+              value={fDept}
+              onChange={(e) => setFDept(e.target.value)}
+              className="rounded border px-2 py-1 text-xs sm:text-sm w-full text-black"
+            >
+              <option value="">ทั้งหมด</option>
+              {opts.dept.map((o: string) => (
+                <option key={o} value={o}>
+                  {o}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-xs sm:text-sm mb-1 text-slate-700 dark:text-white/80">
+              ฝ่าย
+            </label>
+            <select
+              value={fDivision}
+              onChange={(e) => setFDivision(e.target.value)}
+              className="rounded border px-2 py-1 text-xs sm:text-sm w-full text-black"
+            >
+              <option value="">ทั้งหมด</option>
+              {opts.division.map((o: string) => (
+                <option key={o} value={o}>
+                  {o}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-xs sm:text-sm mb-1 text-slate-700 dark:text-white/80">
+              หน่วย
+            </label>
+            <select
+              value={fUnit}
+              onChange={(e) => setFUnit(e.target.value)}
+              className="rounded border px-2 py-1 text-xs sm:text-sm w-full text-black"
+            >
+              <option value="">ทั้งหมด</option>
+              {opts.unit.map((o: string) => (
+                <option key={o} value={o}>
+                  {o}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
 
         {/* calendar header */}
@@ -307,8 +409,9 @@ export default function LeaveCalendarModal({ open, onClose }: Props) {
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
-                          const iso = cell.iso ?? null;
+                          const iso = cell.iso;
                           if (!iso) return;
+
                           const el = cellRefs.current[iso];
                           let above = false;
                           if (el) {
@@ -335,12 +438,11 @@ export default function LeaveCalendarModal({ open, onClose }: Props) {
                               : { left, top: rect.bottom + 8 };
                             setPopupPos(pos);
                           }
-                          setPopupAbove(above);
-                          const newIso = cell.iso ?? null;
-                          setExpandedDay((prev) =>
-                            prev === newIso ? null : newIso
-                          );
-                          if (expandedDay === cell.iso) setPopupPos(null);
+                          setExpandedDay((prev) => {
+                            const next = prev === iso ? null : iso;
+                            if (next === null) setPopupPos(null);
+                            return next;
+                          });
                         }}
                         className="absolute top-2 right-2 text-[11px] sm:text-xs px-2 py-0.5 rounded-md bg-indigo-600 text-white"
                       >

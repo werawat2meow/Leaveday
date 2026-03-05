@@ -18,30 +18,96 @@ export async function GET(req: NextRequest) {
     const start = new Date(Date.UTC(y, m-1, 1));
     const nextMonth = new Date(Date.UTC(y, m, 1));
 
-    // optional: find caller's employee to filter by org/department (existing behaviour)
-    const user = await prisma.user.findUnique({ where: { email: session.user.email }, include: { employee: true } });
-    const approverOrg = user?.employee?.org ?? null;
-    const approverDept = user?.employee?.department ?? null;
+    const user = await prisma.user.findUnique({
+      where: { email: session.user.email },
+      include: { employee: true },
+    });
+    if (!user) return NextResponse.json({ error: "user not found" }, { status: 404 });
+
+    const isAdmin = user.role === "MASTER_ADMIN";
 
     const orgFilter = searchParams.get("org") || undefined;
     const deptFilter = searchParams.get("department") || undefined;
     const divFilter = searchParams.get("division") || undefined;
     const unitFilter = searchParams.get("unit") || undefined;
+    const onlyMyApprovalsParam = searchParams.get("onlyMyApprovals");
+    const onlyMyApprovals =
+      onlyMyApprovalsParam === "1" ||
+      onlyMyApprovalsParam === "true" ||
+      onlyMyApprovalsParam === "yes";
 
-    const where: any = {
+    const baseWhere: any = {
       startDate: { lt: nextMonth },
-      endDate: { gte: start }
+      endDate: { gte: start },
     };
-    // combine approver restrictions and explicit query filters
-    const empWhere: any = {};
-    if (approverOrg) empWhere.org = approverOrg;
-    if (approverDept) empWhere.department = approverDept;
-    if (orgFilter) empWhere.org = orgFilter;
-    if (deptFilter) empWhere.department = deptFilter;
-    if (divFilter) empWhere.division = divFilter;
-    if (unitFilter) empWhere.unit = unitFilter;
-    if (Object.keys(empWhere).length > 0) {
-      where.user = { employee: empWhere };
+
+    const extraFilter: any = {};
+    if (orgFilter) extraFilter.org = orgFilter;
+    if (deptFilter) extraFilter.department = deptFilter;
+    if (divFilter) extraFilter.division = divFilter;
+    if (unitFilter) extraFilter.unit = unitFilter;
+
+    let where: any = { ...baseWhere };
+
+    if (isAdmin) {
+      if (Object.keys(extraFilter).length) {
+        where.user = { employee: extraFilter };
+      }
+    } else {
+      const approver = await prisma.approver.findFirst({
+        where: {
+          OR: [{ email: session.user.email }, { empNo: user.employee?.empNo }],
+        },
+        select: { id: true, orgId: true, org: true },
+      });
+
+      if (!approver) {
+        return NextResponse.json({ ok: true, month, days: {} });
+      }
+
+      let approverOrgName: string | null = approver.org ?? null;
+      if (!approverOrgName && approver.orgId != null) {
+        const orgRow = await prisma.organization.findUnique({
+          where: { id: approver.orgId },
+          select: { name: true },
+        });
+        approverOrgName = orgRow?.name ?? null;
+      }
+
+      const clause2: any = { approverId: approver.id };
+      if (Object.keys(extraFilter).length) {
+        clause2.user = { employee: extraFilter };
+      }
+
+      if (onlyMyApprovals) {
+        where = { ...baseWhere, ...clause2 };
+      } else {
+        const orClauses: any[] = [];
+
+        const scopeOr: any[] = [];
+        if (approver.orgId != null) scopeOr.push({ orgId: approver.orgId });
+        if (approverOrgName) scopeOr.push({ org: approverOrgName });
+
+        if (scopeOr.length) {
+          // clause1: people in my org scope, optionally narrowed by query filters.
+          // IMPORTANT: do not allow query filters to expand scope.
+          if (approverOrgName && orgFilter && orgFilter !== approverOrgName) {
+            // mismatched org filter => no in-scope results
+          } else {
+            const scopeEmployeeWhere = scopeOr.length === 1 ? scopeOr[0] : { OR: scopeOr };
+            const employeeWhere = Object.keys(extraFilter).length
+              ? { AND: [scopeEmployeeWhere, extraFilter] }
+              : scopeEmployeeWhere;
+
+            const clause1: any = { user: { employee: employeeWhere } };
+            orClauses.push(clause1);
+          }
+        }
+
+        // clause2: anyone who selected me as approver (can be outside org)
+        orClauses.push(clause2);
+        where = { ...baseWhere, OR: orClauses };
+      }
     }
 
     const leaves = await prisma.leave.findMany({

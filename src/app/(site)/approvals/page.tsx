@@ -12,6 +12,8 @@ type LeaveStatus = "PENDING" | "APPROVED" | "REJECTED";
 type LeaveRequest = {
   id: number;
   userId: number;
+  approverId?: number | null;
+  my?: boolean; 
   kind: string;
   startDate: string;
   endDate: string;
@@ -38,30 +40,48 @@ type LeaveRequest = {
   attachments?: { id: number; name: string; url: string; mine?: string }[];
 };
 
+type FilterParams = {
+  org?: string;
+  department?: string;
+  division?: string;
+  unit?: string;
+};
+
 /* ---------------- API Functions ---------------- */
-async function fetchLeaveRequests(): Promise<LeaveRequest[]> {
+async function fetchLeaveRequests(
+  params?: FilterParams
+): Promise<{ data: LeaveRequest[]; scopes?: string[] }> {
   try {
-    const response = await fetch("/api/approvals");
+    const qs = new URLSearchParams();
+    if (params?.org) qs.set("org", params.org);
+    if (params?.department) qs.set("department", params.department);
+    if (params?.division) qs.set("division", params.division);
+    if (params?.unit) qs.set("unit", params.unit);
+
+    const url = `/api/approvals${qs.toString() ? `?${qs.toString()}` : ""}`;
+    const response = await fetch(url);
     if (!response.ok) throw new Error("Failed to fetch leaves");
-    const data = await response.json();
+    const body = await response.json();
+    const raw = Array.isArray(body) ? body : body.data || [];
+    const scopes = body.scopes as string[] | undefined;
 
-    console.log("🔄 [Approvals] API Response:", data);
-    const result = Array.isArray(data) ? data : data.data || [];
-
-    return result.map((r: any) => {
-      // normalize various attachment shapes into [{ id, name, url }]
-      const raw =
+    const mapped = raw.map((r: any) => {
+      // …normalize attachments เหมือนเดิม…
+      const rawlist =
         r.attachments ||
         r.files ||
         r.fileList ||
         (Array.isArray(r.attachments?.data) ? r.attachments.data : null) ||
         [];
       let attachments: any[] = [];
-
-      if (Array.isArray(raw) && raw.length > 0) {
-        attachments = raw.map((a: any, idx: number) => ({
+      if (Array.isArray(rawlist) && rawlist.length) {
+        attachments = rawlist.map((a: any, idx: number) => ({
           id: a.id ?? idx,
-          name: a.name ?? a.filename ?? a.originalname ?? `file-${idx}`,
+          name:
+            a.name ??
+            a.filename ??
+            a.originalname ??
+            `file-${idx}`,
           url:
             a.url ||
             a.path ||
@@ -83,12 +103,13 @@ async function fetchLeaveRequests(): Promise<LeaveRequest[]> {
           },
         ];
       }
-
-      return { ...r, attachments };
+      return { ...r, attachments, my: !!r.my };
     });
+
+    return { data: mapped, scopes };
   } catch (error) {
     console.error("Error fetching leave requests:", error);
-    return [];
+    return { data: [], scopes: undefined };
   }
 }
 
@@ -186,6 +207,11 @@ export default function ApprovalsPage() {
   // ------ signature
   const [rememberSignature, setRememberSignature] = useState(false);
   const [savedSignatureExists, setSavedSignatureExists] = useState(false);
+  const [availableScopes, setAvailableScopes] = useState<string[]>([]);
+  const [onlyMine, setOnlyMine] = useState(false);
+
+  // helper to avoid repeatedly loading broken avatar URLs
+  const [avatarErrored, setAvatarErrored] = useState(false);
 
   const signatureStorageKey = useMemo(() => {
     if (typeof window === "undefined") return "approverSignature_me";
@@ -213,6 +239,33 @@ export default function ApprovalsPage() {
   const [fDivision, setFDivision] = useState("");
   const [fUnit, setFUnit] = useState("");
 
+  // master copy of the four dropdown filters; sent to both modals
+  const currentFilters = useMemo<FilterParams>(
+    () => ({ org: fOrg, department: fDept, division: fDivision, unit: fUnit }),
+    [fOrg, fDept, fDivision, fUnit]
+  );
+
+  // when selection changes, try loading avatar again (clear error flag)
+  useEffect(() => {
+    setAvatarErrored(false);
+  }, [selectedId]);
+
+   useEffect(() => {
+    const loadData = async () => {
+      setLoading(true);
+      const res = await fetchLeaveRequests({
+        org: fOrg,
+        department: fDept,
+        division: fDivision,
+        unit: fUnit,
+      });
+      setData(res.data);
+      if (res.scopes) setAvailableScopes(res.scopes);
+      setLoading(false);
+    };
+    loadData();
+  }, [fOrg, fDept, fDivision, fUnit]);
+
   // toast
   const [toast, setToast] = useState<{
     type: "success" | "error";
@@ -227,42 +280,9 @@ export default function ApprovalsPage() {
     []
   );
 
-  // fetch modal data when opened
-  useEffect(() => {
-    if (!showHistoryModal) return;
-    fetch("/api/leaves/all?department=IT")
-      .then((res) => res.json())
-      .then((json) => {
-        const mapped = (json.data || []).map((l: any) => ({
-          id: l.id,
-          userId: l.userId,
-          kind: l.kind,
-          startDate: l.startDate,
-          endDate: l.endDate,
-          reason: l.reason,
-          status: l.status,
-          approverReason: l.approverReason,
-          approverSignature: l.approverSignature,
-          approverName: l.approverName || l.approver?.name || l.approver || "",
-          handoverTo: l.handoverTo || "",
-          createdAt: l.createdAt,
-          user: {
-            name: l.user?.name,
-            employee: {
-              empNo: l.user?.employee?.empNo || "",
-              firstName: l.user?.employee?.firstName || "",
-              lastName: l.user?.employee?.lastName || "",
-              org: l.user?.employee?.org || "",
-              department: l.user?.employee?.department || "",
-              division: l.user?.employee?.division || "",
-              unit: l.user?.employee?.unit || "",
-              levelP: l.user?.employee?.levelP || "",
-            },
-          },
-        }));
-        setModalLeaveHistory(mapped);
-      });
-  }, [showHistoryModal]);
+  // we no longer fetch here – history array comes from `filtered` when
+  // the button is clicked. the modal still receives `filters` so it can
+  // re‑fetch or display its own controls if necessary.
 
   useEffect(() => {
     if (showHistoryModal) {
@@ -274,8 +294,9 @@ export default function ApprovalsPage() {
   useEffect(() => {
     const loadData = async () => {
       setLoading(true);
-      const leaves = await fetchLeaveRequests();
-      setData(leaves);
+      const res = await fetchLeaveRequests();          // ← รับ object
+      setData(res.data);                               // ← เอาเฉพาะ array
+      if (res.scopes) setAvailableScopes(res.scopes);  // ← อัพเดต scope ด้วย
       setLoading(false);
     };
     loadData();
@@ -305,6 +326,7 @@ export default function ApprovalsPage() {
   // filtered list
   const filtered = useMemo(() => {
     return data.filter((r) => {
+      if (onlyMine && !r.my) return false;
       const employee = r.user.employee;
       const name = `${employee?.firstName || ""} ${
         employee?.lastName || ""
@@ -323,7 +345,7 @@ export default function ApprovalsPage() {
         (!fUnit || employee?.unit === fUnit);
       return hitQ && hit;
     });
-  }, [data, q, fOrg, fDept, fDivision, fUnit]);
+  }, [data, q, fOrg, fDept, fDivision, fUnit, onlyMine]);
 
   const selected = useMemo(() => {
     const s = data.find((d) => d.id === selectedId) || null;
@@ -463,6 +485,7 @@ export default function ApprovalsPage() {
     }
   };
 
+
   return (
     <section className="neon-card rounded-2xl p-6 text-slate-900 dark:text-slate-100">
       <div className="flex items-center justify-between">
@@ -481,6 +504,8 @@ export default function ApprovalsPage() {
           <button
             className="rounded-lg px-4 py-2 bg-yellow-200 text-yellow-900 hover:bg-yellow-300 border border-yellow-300 dark:bg-yellow-900/30 dark:text-yellow-200 dark:hover:bg-yellow-800"
             onClick={() => {
+              // snapshot the already‑filtered list and open the modal
+              setModalLeaveHistory(filtered);
               setShowHistoryModal(true);
             }}
           >
@@ -507,21 +532,18 @@ export default function ApprovalsPage() {
         open={showHistoryModal}
         onClose={() => setShowHistoryModal(false)}
         leaveHistory={modalLeaveHistory}
-        department={fDept}
+        filters={currentFilters}
       />
       <LeaveCalendarModal
         open={showCalendarModal}
         onClose={() => setShowCalendarModal(false)}
+        filters={currentFilters}
+        onlyMyApprovals={onlyMine}
       />
 
       {/* Filters */}
       <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-        <Select
-          label="สังกัด"
-          value={fOrg}
-          onChange={setFOrg}
-          options={opts.org}
-        />
+        <Select label="สังกัด" value={fOrg} onChange={setFOrg} options={opts.org} />
         <Select
           label="แผนก"
           value={fDept}
@@ -548,19 +570,27 @@ export default function ApprovalsPage() {
             placeholder="ชื่อ / EMP No. / เหตุผล"
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            className="w-full rounded-xl border p-3
-                       border-slate-300 bg-white text-slate-900 placeholder-slate-400
-                       focus:border-slate-400 focus:ring-2 focus:ring-slate-300/60
-                       dark:border-slate-700 dark:bg-slate-800/80 dark:text-slate-100
-                       dark:placeholder-slate-500 dark:focus:border-slate-500 dark:focus:ring-slate-700/40"
+            className="w-full rounded-xl border p-3 …"
           />
         </div>
       </div>
 
-      {/* Bulk action bar */}
       <div className="mt-3 flex items-center justify-between">
-        <div className="text-sm text-slate-600 dark:text-slate-500">
-          เลือกรายการ: {selectedIds.size}
+        <div className="flex items-center gap-4">
+          <label
+            className="inline-flex items-center px-2 py-1 rounded text-sm blink-bg"
+          >
+            <input
+              type="checkbox"
+              checked={onlyMine}
+              onChange={(e) => setOnlyMine(e.target.checked)}
+              className="mr-2"
+            />
+            แสดงเฉพาะที่ต้องอนุมัติ
+          </label>
+          <div className="text-sm text-slate-600 dark:text-slate-500">
+            เลือกรายการ : {selectedIds.size}
+          </div>
         </div>
         <div className="flex gap-2">
           <button
@@ -735,18 +765,24 @@ export default function ApprovalsPage() {
                   employee?.photoUrl ||
                   employee?.avatar ||
                   `/uploads/avatars/${empNo}.jpg`;
+                  const finalPhotoUrl =
+                  avatarErrored || !photoUrl
+                    ? "/images/avatar-placeholder.png"     // ถ้าอยากใช้ data: URL ก็ได้
+                    : photoUrl;
                 return (
                   <>
                     <div className="sm:col-start-3 sm:row-start-1 flex items-start justify-end">
                       <div className="w-28 h-28 sm:w-36 sm:h-36 rounded-lg overflow-hidden bg-slate-100 dark:bg-slate-800">
                         <img
-                          src={photoUrl || "/images/avatar-placeholder.png"}
+                          key={finalPhotoUrl}  
+                          src={finalPhotoUrl}
                           alt={`${employee?.firstName || ""} ${
                             employee?.lastName || ""
                           }`}
                           onError={(e) => {
-                            (e.currentTarget as HTMLImageElement).src =
-                              "/images/avatar-placeholder.png";
+                            const img = e.currentTarget;
+                            if (img.src.endsWith("avatar-placeholder.png")) return;
+                            setAvatarErrored(true);
                           }}
                           className="w-full h-full object-cover"
                         />

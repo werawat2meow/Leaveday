@@ -493,3 +493,31 @@ html.theme-light .table th {
 html.theme-light .text-slate-700 {
   color: #1e293b !important; /* slate-800 */
 }
+
+@keyframes sale-blink {
+  0%,100% {
+    background-color: #ff0000e7;     
+    color: #fff;
+    transform: scale(1);
+    box-shadow: 0 0 8px #ff0000e7;
+  }
+  50% {
+    background-color: #e46c0a;   
+    color: #000;
+    transform: scale(1.1);        
+    box-shadow: 0 0 12px #e46c0a;
+  }
+}
+
+@keyframes sale-blink2 {
+  0%,100% { background:#ff0000e7; }
+  50%      { background:#e46c0a; }
+}
+
+.blink-bg {
+  animation: sale-blink 0.8s ease-in-out infinite;
+}
+
+.blink-bg-fast { 
+  animation: sale-blink2 0.3s steps(1) infinite;
+}

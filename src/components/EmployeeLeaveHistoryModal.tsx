@@ -1,6 +1,6 @@
 import React from "react";
 
-type LeaveStatus = "PENDING" | "APPROVED" | "REJECTED";
+type LeaveStatus = "PENDING" | "APPROVED" | "REJECTED" | "CANCELLED";
 type LeaveRequest = {
   id: number;
   userId: number;
@@ -29,11 +29,19 @@ type LeaveRequest = {
   };
 };
 
+type FilterParams = {
+  org?: string;
+  department?: string;
+  division?: string;
+  unit?: string;
+};
+
 type Props = {
   open: boolean;
   onClose: () => void;
-  department: string;
+  department?: string;               // ทำให้ optional
   leaveHistory?: LeaveRequest[];
+  filters?: FilterParams;            // ← เพิ่มตรงนี้
 };
 
 function fmtDate(s: string) {
@@ -79,11 +87,14 @@ export default function EmployeeLeaveHistoryModal({
   onClose,
   leaveHistory = [],
   department,
+  filters = {},
 }: Props) {
   const [loading, setLoading] = React.useState(false);
   const [leaves, setLeaves] = React.useState<LeaveRequest[]>([]);
   const [startDate, setStartDate] = React.useState("");
   const [endDate, setEndDate] = React.useState("");
+
+  const [onlyMyApprovalsUi, setOnlyMyApprovalsUi] = React.useState(false);
 
   const [fOrg, setFOrg] = React.useState("");
   const [fDept, setFDept] = React.useState("");
@@ -112,11 +123,10 @@ export default function EmployeeLeaveHistoryModal({
 
   React.useEffect(() => {
     if (!open) {
-      // Reset เมื่อปิด modal
       setLeaves([]);
       setStartDate("");
       setEndDate("");
-
+      setOnlyMyApprovalsUi(false);
       setFOrg("");
       setFDept("");
       setFDivision("");
@@ -124,39 +134,46 @@ export default function EmployeeLeaveHistoryModal({
       return;
     }
 
-    // preset filter ตาม department ที่ส่งเข้ามา (ถ้ามี)
-    setFDept(department || "");
+    setFOrg(filters.org || "");
+    setFDept(filters.department || department || "");
+    setFDivision(filters.division || "");
+    setFUnit(filters.unit || "");
 
-    let cancelled = false;
-    setLoading(true);
-
-    const url = department
-      ? `/api/leaves/all?department=${encodeURIComponent(department)}`
-      : "/api/leaves/all";
-
-    // ถ้ามี leaveHistory ส่งเข้ามา ให้ใช้ก่อน (กัน modal โหลดซ้ำ)
+    // show any provided snapshot immediately, but still fetch authoritative data
     if (leaveHistory && leaveHistory.length > 0) {
       setLeaves(leaveHistory);
-      setLoading(false);
-      return;
     }
+  }, [open, department, filters, leaveHistory]);
 
-    fetch(url)
+  React.useEffect(() => {
+    if (!open) return;
+
+    const controller = new AbortController();
+    setLoading(true);
+
+    const qs = new URLSearchParams();
+    if (fOrg) qs.set("org", fOrg);
+    if (fDept) qs.set("department", fDept);
+    if (fDivision) qs.set("division", fDivision);
+    if (fUnit) qs.set("unit", fUnit);
+    qs.set("onlyMyApprovals", onlyMyApprovalsUi ? "1" : "0");
+
+    const url = `/api/leaves/all${qs.toString() ? `?${qs.toString()}` : ""}`;
+
+    fetch(url, { signal: controller.signal })
       .then((res) => res.json())
       .then((json) => {
-        if (cancelled) return;
-        setLeaves(json.data || []);
+        if (controller.signal.aborted) return;
+        setLeaves(json?.data || []);
         setLoading(false);
       })
-      .catch((err) => {
-        if (cancelled) return;
+      .catch(() => {
+        if (controller.signal.aborted) return;
         setLoading(false);
       });
 
-    return () => {
-      cancelled = true;
-    };
-  }, [open, department]);
+    return () => controller.abort();
+  }, [open, fOrg, fDept, fDivision, fUnit, onlyMyApprovalsUi]);
 
   // Filter leaves by org + date range
   const filteredLeaves = React.useMemo(() => {
@@ -205,6 +222,18 @@ export default function EmployeeLeaveHistoryModal({
           >
             ✕
           </button>
+        </div>
+
+        <div className="mb-3">
+          <label className="inline-flex items-center px-2 py-1 rounded text-sm blink-bg">
+            <input
+              type="checkbox"
+              checked={onlyMyApprovalsUi}
+              onChange={(e) => setOnlyMyApprovalsUi(e.target.checked)}
+              className="mr-2"
+            />
+            รายชื่อขึ้นตรงกับเรา
+          </label>
         </div>
         {/* Filters */}
         <div className="mb-3 sm:mb-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-6">
@@ -372,6 +401,9 @@ export default function EmployeeLeaveHistoryModal({
                     } else if (item.status === "REJECTED") {
                       statusLabel = "ไม่อนุมัติ";
                       statusClass = "bg-red-200 text-red-800 border-red-300";
+                    } else if (item.status === "CANCELLED") {
+                      statusLabel = "ยกเลิก";
+                      statusClass = "bg-slate-200 text-slate-800 border-slate-300";
                     }
                     return (
                       <tr
