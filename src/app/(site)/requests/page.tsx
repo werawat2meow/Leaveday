@@ -136,6 +136,20 @@ type MeResponse = {
 } | null;
 
 export default function LeavePage() {
+  function annualUnlockDateForYear(employeeStartDate: Date, year: number) {
+    const month0 = employeeStartDate.getUTCMonth();
+    const day = employeeStartDate.getUTCDate();
+    const lastDay = new Date(Date.UTC(year, month0 + 1, 0)).getUTCDate();
+    const safeDay = Math.min(day, lastDay);
+    return new Date(Date.UTC(year, month0, safeDay, 0, 0, 0, 0));
+  }
+
+  function dayBeforeUTC(d: Date) {
+    const x = new Date(d);
+    x.setUTCDate(x.getUTCDate() - 1);
+    return x;
+  }
+
   function formatThaiDateDMY(input: string | Date) {
     const d = input instanceof Date ? input : new Date(input);
     if (isNaN(+d)) return String(input);
@@ -452,14 +466,60 @@ export default function LeavePage() {
     if (!leave.fromDate || !leave.toDate) return "ระบุช่วงวันที่ลา";
     if (blackoutError) return blackoutError;
 
-    // เช็คอายุงานสำหรับลาประจำปี (ANNUAL)
-    if (leave.leaveType === "ANNUAL" && me && me.employee.startDate) {
-      const startDate = new Date(me.employee.startDate);
-      const now = new Date();
-      const diffYears =
-        (now.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24 * 365.25);
-      if (diffYears < 1) {
-        return "อายุงานยังไม่ครบ 1 ปี ไม่สามารถลาประจำปีได้";
+    // Annual: ใช้ได้เมื่อครบ 1 ปี (อิงจากวันเริ่มลา) และสิทธิ์ปีนี้ปลดล็อคตามวันครบรอบของแต่ละปี
+    if (
+      leave.leaveType === "ANNUAL" &&
+      me?.employee.startDate &&
+      leave.fromDate &&
+      leave.toDate
+    ) {
+      const empStart = new Date(me.employee.startDate);
+      const from = parseISO(leave.fromDate);
+      const to = parseISO(leave.toDate);
+      if (isNaN(+from) || isNaN(+to) || to < from) {
+        return "ระบุช่วงวันที่ลา";
+      }
+
+      const firstUnlock = annualUnlockDateForYear(
+        empStart,
+        empStart.getUTCFullYear() + 1
+      );
+      if (from < firstUnlock) {
+        return `อายุงานยังไม่ครบ 1 ปี (อิงจากวันเริ่มลา) ไม่สามารถลาพักร้อนได้ (เริ่มใช้ได้ตั้งแต่ ${formatThaiDateDMY(
+          firstUnlock
+        )})`;
+      }
+
+      // ถ้ายังไม่ถึงวันปลดล็อคของปีนี้: วันก่อนครบรอบต้องใช้ยอดยกเท่านั้น
+      const y = from.getFullYear();
+      const unlockFromApi = leaveUsed?.annualUnlockDate
+        ? new Date(leaveUsed.annualUnlockDate)
+        : null;
+      const unlock = unlockFromApi ?? annualUnlockDateForYear(empStart, y);
+
+      let preDays = 0;
+      if (from < unlock) {
+        const preEnd = new Date(
+          Math.min(to.getTime(), dayBeforeUTC(unlock).getTime())
+        );
+        if (preEnd >= from) {
+          preDays = countBusinessDays(
+            from,
+            preEnd,
+            normalizeSession(leave.session),
+            holidaysSet,
+            emp.weeklyHoliday || undefined
+          );
+        }
+      }
+
+      if (preDays > 0) {
+        const cfAvail = Number(leaveUsed?.remainCarryForwardAnnual ?? 0);
+        if (cfAvail < preDays) {
+          return `ก่อนถึงวันครบรอบ (${formatThaiDateDMY(
+            unlock
+          )}) ต้องใช้ยอดยกอย่างน้อย ${preDays} วัน แต่ยอดยกเหลือ ${cfAvail} วัน`;
+        }
       }
     }
 
@@ -1539,20 +1599,27 @@ export default function LeavePage() {
                       />
                     )}
                   </div>
-                  {leaveUsed?.carryForwardAnnual > 0 && (
-                    <div className="mt-2 text-xs text-yellow-400">
-                      ยอดยกลาพักร้อนจากปีที่แล้ว: {leaveUsed.carryForwardAnnual}{" "}
-                      วัน
-                      {leaveUsed.carryForwardAnnualExpiry && (
-                        <>
-                          {" "}
-                          (หมดอายุ:{" "}
-                          {formatThaiDateDMY(leaveUsed.carryForwardAnnualExpiry)}
-                          )
-                        </>
+                  {Array.isArray((leaveUsed as any)?.carryForwardAnnualBuckets) &&
+                  ((leaveUsed as any).carryForwardAnnualBuckets as any[]).length > 0 ? (
+                    <div className="mt-2 space-y-1 text-xs text-yellow-400">
+                      <div className="font-medium">ยอดยกพักร้อน (แยกตามปีสิทธิ์)</div>
+                      {((leaveUsed as any).carryForwardAnnualBuckets as any[]).map(
+                        (b: any, idx: number) => (
+                          <div key={idx}>
+                            ปี {Number(b?.originYear ?? 0) + 543}: {Number(
+                              b?.remaining ?? 0
+                            ).toFixed(1).replace(/\.0$/, "")} วัน
+                            {b?.expiresOn || b?.expiresAt ? (
+                              <>
+                                {" "}
+                                (หมดอายุ: {formatThaiDateDMY(b.expiresOn || b.expiresAt)})
+                              </>
+                            ) : null}
+                          </div>
+                        )
                       )}
                     </div>
-                  )}
+                  ) : null}
                   {leaveUsed?.carryForwardHoliday > 0 && (
                     <div className="mt-2 text-xs text-yellow-400">
                       ยอดยกวันหยุดพิเศษจากปีที่แล้ว:{" "}
@@ -1569,7 +1636,9 @@ export default function LeavePage() {
                   )}
                   {/* แสดงยอดคงเหลือรวมตาม business logic ใหม่ */}
                   <div className="mt-2 text-sm text-cyan-400">
-                    พักร้อนคงเหลือ: {leaveUsed?.totalRemainAnnual !== undefined
+                    พักร้อนใช้ได้วันนี้: {leaveUsed?.annualAvailableNow !== undefined
+                      ? Number(leaveUsed.annualAvailableNow).toFixed(1)
+                      : leaveUsed?.totalRemainAnnual !== undefined
                       ? Number(leaveUsed.totalRemainAnnual).toFixed(1)
                       : "-"} วัน
                     {leaveUsed?.remainCarryForwardAnnual > 0
@@ -1578,6 +1647,16 @@ export default function LeavePage() {
                       ? " (สิทธิ์ปีนี้)"
                       : ""}
                   </div>
+
+                  {leaveUsed?.annualCurrentUnlockedNow === false &&
+                  leaveUsed?.annualUnlockDate &&
+                  Number(leaveUsed?.annualCurrentLocked ?? 0) > 0 ? (
+                    <div className="mt-1 text-xs text-[var(--muted)]">
+                      สิทธิ์พักร้อนปีนี้จะปลดล็อควันที่{" "}
+                      {formatThaiDateDMY(leaveUsed.annualUnlockDate)} (ตอนนี้ล็อค{" "}
+                      {Number(leaveUsed.annualCurrentLocked).toFixed(1)} วัน)
+                    </div>
+                  ) : null}
                   <div className="mt-2 text-sm text-cyan-400">
                     วันหยุดพิเศษคงเหลือ: {leaveUsed?.holidayAvailableNow !== undefined
                       ? Number(leaveUsed.holidayAvailableNow).toFixed(1)

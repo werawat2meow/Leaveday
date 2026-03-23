@@ -6,6 +6,7 @@ import SignaturePadWrapper, {
   SigHandle,
 } from "@/components/SignaturePadWrapper";
 import { useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 
 /* ---------------- Types ---------------- */
 type LeaveStatus = "PENDING" | "APPROVED" | "REJECTED";
@@ -25,6 +26,7 @@ type LeaveRequest = {
   user: {
     name?: string;
     employee?: {
+      id: number;
       empNo: string;
       firstName: string;
       lastName: string;
@@ -209,6 +211,9 @@ export default function ApprovalsPage() {
   const [savedSignatureExists, setSavedSignatureExists] = useState(false);
   const [availableScopes, setAvailableScopes] = useState<string[]>([]);
   const [onlyMine, setOnlyMine] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const pageSize = 10;
+  
 
   // helper to avoid repeatedly loading broken avatar URLs
   const [avatarErrored, setAvatarErrored] = useState(false);
@@ -244,6 +249,7 @@ export default function ApprovalsPage() {
     () => ({ org: fOrg, department: fDept, division: fDivision, unit: fUnit }),
     [fOrg, fDept, fDivision, fUnit]
   );
+  
 
   // when selection changes, try loading avatar again (clear error flag)
   useEffect(() => {
@@ -279,6 +285,8 @@ export default function ApprovalsPage() {
   const [modalLeaveHistory, setModalLeaveHistory] = useState<LeaveRequest[]>(
     []
   );
+
+  
 
   // we no longer fetch here – history array comes from `filtered` when
   // the button is clicked. the modal still receives `filters` so it can
@@ -347,11 +355,37 @@ export default function ApprovalsPage() {
     });
   }, [data, q, fOrg, fDept, fDivision, fUnit, onlyMine]);
 
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const paginatedFiltered = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return filtered.slice(start, start + pageSize);
+  }, [filtered, currentPage]);
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [q, fOrg, fDept, fDivision, fUnit, onlyMine]);
+
   const selected = useMemo(() => {
     const s = data.find((d) => d.id === selectedId) || null;
     if (typeof window !== "undefined") console.log("Selected row:", s);
     return s;
   }, [data, selectedId]);
+
+  const leaveBalanceHref = useMemo(() => {
+    const qs = new URLSearchParams();
+
+    if (selected?.user.employee?.id) {
+      qs.set("employeeId", String(selected.user.employee.id));
+    }
+
+    if (fOrg) qs.set("org", fOrg);
+    if (fDept) qs.set("department", fDept);
+    if (fDivision) qs.set("division", fDivision);
+    if (fUnit) qs.set("unit", fUnit);
+    if (q) qs.set("q", q);
+    qs.set("source", "approvals");
+
+    return `/leave-balance${qs.toString() ? `?${qs.toString()}` : ""}`;
+  }, [selected, fOrg, fDept, fDivision, fUnit, q]);
 
   // selection helpers
   const toggleRow = (id: number) =>
@@ -360,7 +394,7 @@ export default function ApprovalsPage() {
       next.has(id) ? next.delete(id) : next.add(id);
       return next;
     });
-  const visibleIds = filtered.map((r) => r.id);
+  const visibleIds = paginatedFiltered.map((r) => r.id);
   const allVisibleSelected =
     visibleIds.length > 0 && visibleIds.every((id) => selectedIds.has(id));
   const toggleSelectAll = () =>
@@ -370,6 +404,8 @@ export default function ApprovalsPage() {
       else visibleIds.forEach((id) => next.add(id));
       return next;
     });
+
+    
 
   // actions
   async function updateStatus(ids: number[], status: LeaveStatus) {
@@ -517,6 +553,12 @@ export default function ApprovalsPage() {
           >
             ปฏิทินภาพรวม
           </button>
+          <Link
+            href={leaveBalanceHref}
+            className="rounded-lg px-4 py-2 bg-emerald-200 text-emerald-900 hover:bg-emerald-300 border border-emerald-300 dark:bg-emerald-900/30 dark:text-emerald-200 dark:hover:bg-emerald-800"
+          >
+            เช็คสิทธิ์วันลา
+          </Link>
         </div>
       </div>
 
@@ -661,7 +703,7 @@ export default function ApprovalsPage() {
                 </td>
               </tr>
             ) : (
-              filtered.map((r, i) => {
+              paginatedFiltered.map((r, i) => {
                 const checked = selectedIds.has(r.id);
                 const employee = r.user.employee;
                 const name = `${employee?.firstName || ""} ${
@@ -691,7 +733,7 @@ export default function ApprovalsPage() {
                         onChange={() => toggleRow(r.id)}
                       />
                     </Td>
-                    <Td className="text-center">{i + 1}</Td>
+                    <Td className="text-center">{(currentPage - 1) * pageSize + i + 1}</Td>
                     <Td>
                       <div className="font-medium text-slate-900 dark:text-slate-100 text-left">
                         {name}
@@ -742,6 +784,49 @@ export default function ApprovalsPage() {
             )}
           </tbody>
         </table>
+      </div>
+      <div className="mt-4 rounded-xl border border-slate-700 bg-slate-950/40 p-4 shadow-sm">
+        <div className="grid grid-cols-3 items-center gap-4">
+          <div />
+
+          <div className="flex justify-center flex-wrap gap-2">
+            <button
+              disabled={currentPage === 1}
+              onClick={() => setCurrentPage(1)}
+              className="rounded-lg border border-orange-500 bg-amber-500/80 px-4 py-2 text-sm font-semibold text-slate-950 shadow-sm transition hover:bg-amber-500 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              หน้าแรก
+            </button>
+
+            <button
+              disabled={currentPage === 1}
+              onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+              className="rounded-lg border border-fuchsia-500 bg-fuchsia-500/80 px-4 py-2 text-sm font-semibold text-slate-950 shadow-sm transition hover:bg-fuchsia-500 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              ก่อนหน้า
+            </button>
+
+            <button
+              disabled={currentPage === totalPages}
+              onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+              className="rounded-lg border border-fuchsia-500 bg-fuchsia-500/80 px-4 py-2 text-sm font-semibold text-slate-950 shadow-sm transition hover:bg-fuchsia-500 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              ถัดไป
+            </button>
+
+            <button
+              disabled={currentPage === totalPages}
+              onClick={() => setCurrentPage(totalPages)}
+              className="rounded-lg border border-orange-500 bg-amber-500/80 px-4 py-2 text-sm font-semibold text-slate-950 shadow-sm transition hover:bg-amber-500 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              หน้าสุดท้าย
+            </button>
+          </div>
+
+          <div className="flex justify-end text-sm font-medium text-slate-200">
+            หน้า {currentPage} / {totalPages} ({filtered.length} รายการ)
+          </div>
+        </div>
       </div>
 
       {/* Details Panel */}

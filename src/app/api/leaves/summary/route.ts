@@ -1,5 +1,7 @@
 import { authOptions } from "@/lib/auth";
 import { ensureLeaveRightsForYear } from "@/lib/leave-rights-rollover";
+import { computeAnnualUnlockDate } from "@/lib/annual-unlock";
+import { dayBeforeUTC } from "@/lib/annual-carry-forward-buckets";
 import { countBusinessDays } from "@/lib/leave-utils";
 import { prisma } from "@/lib/prisma";
 import { getServerSession } from "next-auth";
@@ -133,16 +135,27 @@ export async function GET(req: NextRequest) {
     const holidays = await holidaySetForYear(year);
 
     // ===== FIX: แยก "ยอดยกทั้งหมด" ออกจาก "ยอดยกที่ยังใช้ได้วันนี้" =====
-    const cfAnnualTotal = Number(rights?.carryForwardAnnual ?? 0);
-    const cfAnnualExpiry = rights?.carryForwardAnnualExpiry
-      ? new Date(rights.carryForwardAnnualExpiry)
-      : null;
-    const cfAnnualActiveNow = !!(
-      cfAnnualTotal > 0 &&
-      cfAnnualExpiry &&
-      cfAnnualExpiry > now
-    );
-    const carryAllowedAnnual = cfAnnualActiveNow ? cfAnnualTotal : 0;
+    const annualBucketsRaw = await prisma.annualCarryForwardBucket.findMany({
+      where: {
+        employeeId: user.employee.id,
+        remaining: { gt: 0 },
+        expiresAt: { gt: now },
+      },
+      orderBy: [{ expiresAt: "asc" }, { originYear: "asc" }, { id: "asc" }],
+      select: { id: true, originYear: true, remaining: true, expiresAt: true },
+    });
+
+    const annualBuckets = annualBucketsRaw.map((b) => ({
+      id: b.id,
+      originYear: b.originYear,
+      remaining: toNum(b.remaining),
+      expiresAt: new Date(b.expiresAt), // exclusive
+      expiresOn: dayBeforeUTC(new Date(b.expiresAt)), // inclusive date for display
+    }));
+
+    const cfAnnualTotal = annualBuckets.reduce((sum, b) => sum + Math.max(0, b.remaining), 0);
+    const cfAnnualActiveNow = cfAnnualTotal > 0;
+    const carryAllowedAnnual = cfAnnualTotal;
 
     const cfHolidayTotal = Number(rights?.carryForwardHoliday ?? 0);
     const cfHolidayExpiry = rights?.carryForwardHolidayExpiry
@@ -381,6 +394,16 @@ export async function GET(req: NextRequest) {
     const totalRemainAnnual = remainCarryForwardAnnual + remainVacationLeave;
     const totalRemainHoliday = remainCarryForwardHoliday + remainHolidayLeave;
 
+    // Annual unlock info (do not change existing totals; provide extra fields for UI)
+    const annualUnlockDate = computeAnnualUnlockDate(
+      user.employee.startDate ? new Date(user.employee.startDate) : null,
+      year
+    );
+    const annualCurrentUnlockedNow = !!(annualUnlockDate && now >= annualUnlockDate);
+    const annualCurrentAvailableNow = annualCurrentUnlockedNow ? remainVacationLeave : 0;
+    const annualCurrentLocked = annualCurrentUnlockedNow ? 0 : remainVacationLeave;
+    const annualAvailableNow = remainCarryForwardAnnual + annualCurrentAvailableNow;
+
     // ✅ NEW: Holiday "ใช้ได้วันนี้" = ยอดยกที่ยังไม่หมดอายุ + สิทธิ์ปีนี้ที่ปลดล็อคตามวันหยุดที่ผ่านแล้ว
     // หมายเหตุ: ไม่เอา "วันอนาคต" มาเป็นสิทธิ์ใช้ได้ แต่ก็ไม่ถือว่าเป็น "used"
     const passedHolidayCount = Array.from(holidays).filter((d) => d <= todayKey)
@@ -441,8 +464,14 @@ export async function GET(req: NextRequest) {
         remainingByKind,
         annualTotal,
         holidayTotal,
-        carryForwardAnnual: rights?.carryForwardAnnual ?? 0,
-        carryForwardAnnualExpiry: rights?.carryForwardAnnualExpiry,
+        carryForwardAnnual: cfAnnualTotal,
+        carryForwardAnnualExpiry: null,
+        carryForwardAnnualBuckets: annualBuckets.map((b) => ({
+          originYear: b.originYear,
+          remaining: b.remaining,
+          expiresAt: b.expiresAt.toISOString(),
+          expiresOn: b.expiresOn.toISOString(),
+        })),
         carryForwardHoliday: rights?.carryForwardHoliday ?? 0,
         carryForwardHolidayExpiry: rights?.carryForwardHolidayExpiry,
         remainCarryForwardAnnual,
@@ -451,6 +480,12 @@ export async function GET(req: NextRequest) {
         remainHolidayLeave,
         totalRemainAnnual,
         totalRemainHoliday,
+
+        annualUnlockDate,
+        annualCurrentUnlockedNow,
+        annualCurrentAvailableNow,
+        annualCurrentLocked,
+        annualAvailableNow,
 
         // ✅ ฟิลด์เพิ่มสำหรับ UI (ไม่รวม PENDING)
         remainCarryForwardAnnualApprovedOnly,

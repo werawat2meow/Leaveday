@@ -6,6 +6,7 @@ import {
   exportHrConfirmToPdf,
   type LeaveRequest as ExportLeaveRequest,
 } from "@/lib/exports/hrConfirmRecheckExport";
+import Link from "next/link";
 
 /* ---------- Types ---------- */
 type LeaveStatus = "pending" | "approved" | "rejected";
@@ -51,6 +52,10 @@ export default function HRConfirmRecheckPage() {
   // toast
   const [toast, setToast] =
     useState<{ type: "success" | "error"; msg: string } | null>(null);
+
+  const [currentPage, setCurrentPage] = useState(1);
+  const pageSize = 10;
+
 
   /* ---------- Load Data from API ---------- */
   const fetchData = async () => {
@@ -167,7 +172,15 @@ export default function HRConfirmRecheckPage() {
 
   // ใช้ list ตามโหมดที่เลือก
   const list = showConfirmed ? confirmedList : waitingList;
-
+  const totalPages = Math.max(1, Math.ceil(list.length / pageSize));
+  const paginatedList = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return list.slice(start, start + pageSize);
+  }, [list, currentPage]);
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [fOrg, fDept, fDivision, fUnit, dateFrom, dateTo, showConfirmed]);
+  
   const handleExportExcel = async () => {
     try {
       await exportHrConfirmToExcel({
@@ -199,7 +212,7 @@ export default function HRConfirmRecheckPage() {
   };
 
   // selection helpers
-  const visibleIds = list.map((r) => r.id);
+  const visibleIds = paginatedList.map((r) => r.id);
   const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedIds.has(id));
   const toggleSelectAll = () =>
     setSelectedIds((prev) => {
@@ -278,6 +291,20 @@ export default function HRConfirmRecheckPage() {
       setTimeout(() => setToast(null), 2000);
     }
   }
+
+    const leaveBalanceHref = useMemo(() => {
+    const qs = new URLSearchParams();
+
+    if (fOrg) qs.set("org", fOrg);
+    if (fDept) qs.set("department", fDept);
+    if (fDivision) qs.set("division", fDivision);
+    if (fUnit) qs.set("unit", fUnit);
+    if (dateFrom) qs.set("dateFrom", dateFrom);
+    if (dateTo) qs.set("dateTo", dateTo);
+    qs.set("source", "reports");
+
+    return `/leave-balance${qs.toString() ? `?${qs.toString()}` : ""}`;
+  }, [fOrg, fDept, fDivision, fUnit, dateFrom, dateTo]);
 
   return (
     <section className="neon-card rounded-2xl p-6 text-slate-900 dark:text-slate-100">
@@ -367,6 +394,13 @@ export default function HRConfirmRecheckPage() {
               ยืนยันที่เลือก
             </button>
           )}
+          <Link
+            href={leaveBalanceHref}
+            className="rounded-lg px-3 py-2 text-sm bg-orange-600 text-white hover:bg-orange-700"
+            title="เปิดหน้าตรวจสิทธิ์วันลาโดยใช้ตัวกรองปัจจุบัน"
+          >
+            เช็คสิทธิ์วันลา
+          </Link>
         </div>
       </div>
 
@@ -414,7 +448,7 @@ export default function HRConfirmRecheckPage() {
                 </td>
               </tr>
             ) : (
-              list.map((r, i) => {
+              paginatedList.map((r, i) => {
                 const checked = selectedIds.has(r.id);
                 return (
                   <tr
@@ -429,7 +463,7 @@ export default function HRConfirmRecheckPage() {
                         onChange={() => toggleRow(r.id)}
                       />
                     </Td>
-                    <Td>{i + 1}</Td>
+                    <Td>{(currentPage - 1) * pageSize + i + 1}</Td>
                     <Td>
                       <div className="font-medium">{r.name}</div>
                       <div className="text-xs text-slate-500 dark:text-slate-400">
@@ -474,6 +508,52 @@ export default function HRConfirmRecheckPage() {
             )}
           </tbody>
         </table>
+      </div>
+      <div className="mt-3 rounded-xl border border-slate-700 bg-slate-950/40 p-4 shadow-sm">
+        <div className="grid grid-cols-3 items-center gap-4">
+          {/* 1) ช่องว่างไว้ข้างซ้าย เพื่อให้ปุ่มอยู่อย่างกลาง */}
+          <div />
+
+          {/* 2) ปุ่มตรงกลาง */}
+          <div className="flex justify-center flex-wrap gap-2">
+            <button
+              disabled={currentPage === 1}
+              onClick={() => setCurrentPage(1)}
+              className="rounded-lg border border-orange-500 bg-amber-300 px-4 py-2 text-sm font-semibold text-slate-950 shadow-sm transition hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              หน้าแรก
+            </button>
+
+            <button
+              disabled={currentPage === 1}
+              onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+              className="rounded-lg border border-red-500 bg-orange-400 px-4 py-2 text-sm font-semibold text-slate-950 shadow-sm transition hover:bg-orange-500 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              ก่อนหน้า
+            </button>
+
+            <button
+              disabled={currentPage === totalPages}
+              onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+              className="rounded-lg border border-red-500 bg-orange-400 px-4 py-2 text-sm font-semibold text-slate-950 shadow-sm transition hover:bg-orange-500 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              ถัดไป
+            </button>
+
+            <button
+              disabled={currentPage === totalPages}
+              onClick={() => setCurrentPage(totalPages)}
+              className="rounded-lg border border-orange-500 bg-amber-300 px-4 py-2 text-sm font-semibold text-slate-950 shadow-sm transition hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              หน้าสุดท้าย
+            </button>
+          </div>
+
+          {/* 3) ข้อความ “หน้า 2/18 (177 รายการ)” ด้านขวาสุด */}
+          <div className="flex justify-end text-sm font-medium text-slate-200">
+            หน้า {currentPage} / {totalPages} ({list.length} รายการ)
+          </div>
+        </div>
       </div>
 
       {/* Toast */}

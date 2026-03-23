@@ -1,5 +1,6 @@
 import { authOptions } from "@/lib/auth";
 import { ensureLeaveRightsForYear } from "@/lib/leave-rights-rollover";
+import { computeAnnualUnlockDate } from "@/lib/annual-unlock";
 import {
   countBusinessDays,
   HalfSession,
@@ -10,6 +11,7 @@ import {
   countBusinessDaysByYear,
   splitRangeByYear,
 } from "@/lib/leave-year-split";
+import { allocateFromBuckets } from "@/lib/annual-carry-forward-buckets";
 import { prisma } from "@/lib/prisma";
 import { LeaveStatus } from "@prisma/client";
 import { getServerSession } from "next-auth";
@@ -87,6 +89,10 @@ function overlapDaysInYear(params: {
     holidays,
     weeklyHoliday ?? undefined
   );
+}
+
+function maxDate(a: Date, b: Date) {
+  return a.getTime() >= b.getTime() ? a : b;
 }
 
 export async function GET(
@@ -311,6 +317,11 @@ export async function PATCH(
               | undefined;
 
             if (res && typeof res === "object") {
+              const leaveStart = new Date(leave.startDate);
+              const leaveEnd = new Date(leave.endDate);
+              const leaveSegments = splitRangeByYear(leaveStart, leaveEnd);
+              const holidayCache = new Map<number, Set<string>>();
+
               for (const [yearStr, alloc] of Object.entries(res)) {
                 const y = Number(yearStr);
                 if (!Number.isFinite(y)) continue;
@@ -328,15 +339,86 @@ export async function PATCH(
                 });
                 if (!rights) continue;
 
-                // Policy: if carry-forward is expired now, it cannot be used.
-                if (leave.kind === "ANNUAL") {
-                  const expiry = rights.carryForwardAnnualExpiry
-                    ? new Date(rights.carryForwardAnnualExpiry)
-                    : null;
-                  if (cf > 0 && (!expiry || expiry <= now)) {
-                    current += cf;
-                    cf = 0;
+                // Guard: annual current-year entitlement unlocks on anniversary date each year.
+                // Before unlock date within year y, ANNUAL must be covered by carry-forward only.
+                if (leave.kind === "ANNUAL" && current > 0) {
+                  const unlock = computeAnnualUnlockDate(employee.startDate ? new Date(employee.startDate) : null, y);
+                  if (unlock) {
+                    const seg = leaveSegments.find((s) => s.year === y) || null;
+                    const holidays = holidayCache.get(y) ?? (await holidaySetForYear(y));
+                    if (!holidayCache.has(y)) holidayCache.set(y, holidays);
+
+                    let postDays = 0;
+                    if (seg && seg.end >= unlock) {
+                      const postStart = maxDate(seg.start, unlock);
+                      const postEnd = seg.end;
+                      if (postEnd >= postStart) {
+                        const postSession: HalfSession =
+                          seg.includesOriginalStart && leaveStart >= unlock
+                            ? ((leave.session as HalfSession | null) ?? "FULL")
+                            : "FULL";
+                        postDays = countBusinessDays(
+                          postStart,
+                          postEnd,
+                          postSession,
+                          holidays,
+                          employee.weeklyHoliday ?? undefined
+                        );
+                      }
+                    }
+
+                    if (current > Math.max(0, postDays) + 1e-9) {
+                      throw new Error(
+                        `พักร้อนปี ${y} ยังไม่ปลดล็อคครบตามวันครบรอบ: ขอใช้สิทธิ์ปีนี้ ${current} วัน แต่ช่วงหลังครบรอบมีได้แค่ ${postDays} วัน`
+                      );
+                    }
                   }
+                }
+
+                // Policy: if carry-forward is expired now, it cannot be used.
+                if (leave.kind === "ANNUAL" && cf > 0) {
+                  const segStartForYear =
+                    leaveSegments.find((s) => s.year === y)?.start ?? leaveStart;
+
+                  const bucketsRaw = await tx.annualCarryForwardBucket.findMany({
+                    where: {
+                      employeeId,
+                      remaining: { gt: 0 },
+                      expiresAt: { gt: now },
+                    },
+                    orderBy: [{ expiresAt: "asc" }, { originYear: "asc" }, { id: "asc" }],
+                    select: { id: true, employeeId: true, originYear: true, remaining: true, expiresAt: true },
+                  });
+
+                  const buckets = bucketsRaw.map((b) => ({
+                    id: b.id,
+                    employeeId: b.employeeId,
+                    originYear: b.originYear,
+                    remaining: toNum(b.remaining),
+                    expiresAt: new Date(b.expiresAt),
+                  }));
+
+                  const alloc = allocateFromBuckets({
+                    buckets: buckets as any,
+                    now,
+                    leaveStart: segStartForYear,
+                    days: cf,
+                  });
+
+                  if (alloc.used > 0 && alloc.allocations.length > 0) {
+                    await Promise.all(
+                      alloc.allocations.map((a) =>
+                        tx.annualCarryForwardBucket.update({
+                          where: { id: a.bucketId },
+                          data: { remaining: { decrement: a.use } },
+                        })
+                      )
+                    );
+                  }
+
+                  const shiftToCurrent = Math.max(0, cf - alloc.used);
+                  current += shiftToCurrent;
+                  cf = 0;
                 }
                 if (leave.kind === "ANNUAL_HOLIDAY") {
                   const expiry = rights.carryForwardHolidayExpiry
@@ -349,12 +431,6 @@ export async function PATCH(
                 }
 
                 if (leave.kind === "ANNUAL") {
-                  if (cf > 0) {
-                    await tx.leaveRights.update({
-                      where: { employeeId_year: { employeeId, year: y } },
-                      data: { carryForwardAnnual: { decrement: cf } },
-                    });
-                  }
                   if (current > 0) {
                     await tx.leaveRights.update({
                       where: { employeeId_year: { employeeId, year: y } },
@@ -417,22 +493,45 @@ export async function PATCH(
 
               if (
                 leave.kind === "ANNUAL" &&
-                Number(rights.carryForwardAnnual) > 0 &&
-                rights.carryForwardAnnualExpiry &&
-                new Date(rights.carryForwardAnnualExpiry) > now &&
-                seg.start < new Date(rights.carryForwardAnnualExpiry)
+                remain > 0
               ) {
-                const useCF = Math.min(
-                  remain,
-                  Number(rights.carryForwardAnnual)
-                );
-                if (useCF > 0) {
-                  await tx.leaveRights.update({
-                    where: { employeeId_year: { employeeId, year: seg.year } },
-                    data: { carryForwardAnnual: { decrement: useCF } },
-                  });
-                  remain -= useCF;
+                const bucketsRaw = await tx.annualCarryForwardBucket.findMany({
+                  where: {
+                    employeeId,
+                    remaining: { gt: 0 },
+                    expiresAt: { gt: now },
+                  },
+                  orderBy: [{ expiresAt: "asc" }, { originYear: "asc" }, { id: "asc" }],
+                  select: { id: true, employeeId: true, originYear: true, remaining: true, expiresAt: true },
+                });
+
+                const buckets = bucketsRaw.map((b) => ({
+                  id: b.id,
+                  employeeId: b.employeeId,
+                  originYear: b.originYear,
+                  remaining: toNum(b.remaining),
+                  expiresAt: new Date(b.expiresAt),
+                }));
+
+                const alloc = allocateFromBuckets({
+                  buckets: buckets as any,
+                  now,
+                  leaveStart: seg.start,
+                  days: remain,
+                });
+
+                if (alloc.used > 0 && alloc.allocations.length > 0) {
+                  await Promise.all(
+                    alloc.allocations.map((a) =>
+                      tx.annualCarryForwardBucket.update({
+                        where: { id: a.bucketId },
+                        data: { remaining: { decrement: a.use } },
+                      })
+                    )
+                  );
                 }
+
+                remain -= Math.max(0, alloc.used);
               }
 
               if (

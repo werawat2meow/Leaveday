@@ -153,11 +153,28 @@ model Employee {
   userId Int?  @unique
   user   User? @relation(fields: [userId], references: [id])
   leaveRights LeaveRights[]
+  annualCarryForwardBuckets AnnualCarryForwardBucket[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([empNo])
+}
+
+model AnnualCarryForwardBucket {
+  id         Int      @id @default(autoincrement())
+  employeeId Int
+  originYear Int
+  remaining  Decimal  @default(0.0) @db.Decimal(5,1)
+  expiresAt  DateTime
+
+  employee  Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([employeeId, originYear])
+  @@index([employeeId, expiresAt])
+  @@index([expiresAt])
 }
 
 

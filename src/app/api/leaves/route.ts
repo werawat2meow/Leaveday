@@ -2,6 +2,13 @@ import { authOptions } from "@/lib/auth";
 import { ensureLeaveRightsForYear } from "@/lib/leave-rights-rollover";
 import { findLeaveBlackoutConflict } from "@/lib/leave-blackout";
 import { countBusinessDays, normalizeSession } from "@/lib/leave-utils";
+import { computeAnnualUnlockDate, dayBeforeUTC } from "@/lib/annual-unlock";
+import {
+  getActiveAnnualCarryForwardBuckets,
+  reserveAnnualCarryForwardFromPool,
+  sumUsableAnnualCarryForward,
+  takeAnnualCarryForwardDays,
+} from "@/lib/annual-carry-forward-store";
 import {
   countBusinessDaysByYear,
   splitRangeByYear,
@@ -79,6 +86,28 @@ function overlapDaysInYear(params: {
     holidays,
     weeklyHoliday ?? undefined
   );
+}
+
+function getReservationForYear(
+  reservation: unknown,
+  year: number
+): { cf: number; current: number } | null {
+  if (!reservation || typeof reservation !== "object") return null;
+  const anyRes = reservation as Record<string, any>;
+  const v = anyRes[String(year)];
+  if (!v || typeof v !== "object") return null;
+  const cf = Math.max(0, Number(v.cf ?? 0));
+  const current = Math.max(0, Number(v.current ?? 0));
+  if (!Number.isFinite(cf) || !Number.isFinite(current)) return null;
+  return { cf, current };
+}
+
+function minDate(a: Date, b: Date) {
+  return a.getTime() <= b.getTime() ? a : b;
+}
+
+function maxDate(a: Date, b: Date) {
+  return a.getTime() >= b.getTime() ? a : b;
 }
 
 export async function GET(req: Request) {
@@ -189,14 +218,9 @@ export async function POST(req: NextRequest) {
       );
 
     if (kind === "ANNUAL") {
-      const startDate = user.employee.startDate;
-      if (
-        !startDate ||
-        new Date().getTime() - new Date(startDate).getTime() <
-          365 * 24 * 60 * 60 * 1000
-      ) {
+      if (!user.employee.startDate) {
         return NextResponse.json(
-          { error: "อายุงานยังไม่ครบ 1 ปี จึงยังไม่สามารถลาพักร้อนได้" },
+          { error: "ไม่พบวันเริ่มงาน (startDate)" },
           { status: 400 }
         );
       }
@@ -205,6 +229,24 @@ export async function POST(req: NextRequest) {
     const start = new Date(startDate);
     const end = new Date(endDate);
     const sNorm = normalizeSession(sessionLabel);
+
+    // Annual eligibility must be evaluated against the leave start date (not server 'now').
+    if (kind === "ANNUAL") {
+      const empStart = new Date(user.employee.startDate as any);
+      const firstUnlock = computeAnnualUnlockDate(
+        empStart,
+        empStart.getUTCFullYear() + 1
+      );
+      if (!firstUnlock || start < firstUnlock) {
+        return NextResponse.json(
+          {
+            error:
+              "อายุงานยังไม่ครบ 1 ปี (อิงจากวันเริ่มลา) จึงยังไม่สามารถลาพักร้อนได้",
+          },
+          { status: 400 }
+        );
+      }
+    }
 
     // ปิดรับการลา (Blackout) ตามหน่วยงานและประเภทการลา
     const blackout = await findLeaveBlackoutConflict({
@@ -282,6 +324,15 @@ export async function POST(req: NextRequest) {
       const now = new Date();
       const todayKey = now.toISOString().slice(0, 10);
 
+      // Annual carry-forward pool (multi-bucket). Mutated as we reserve across years.
+      const annualCfPool =
+        kind === "ANNUAL"
+          ? await getActiveAnnualCarryForwardBuckets({
+              employeeId: user.employee.id,
+              now,
+            })
+          : null;
+
       for (const y of years) {
         const reqY = Number(requestedByYear[y] ?? 0);
         if (reqY <= 0) continue;
@@ -309,39 +360,207 @@ export async function POST(req: NextRequest) {
             endDate: true,
             session: true,
             status: true,
+            reservation: true,
           },
           orderBy: { startDate: "asc" },
         });
 
         // ✅ Annual/AnnualHoliday: balances are already decremented on APPROVED in LeaveRights.
         // So we only need to reserve PENDING against the current balances.
-        if (kind === "ANNUAL" || kind === "ANNUAL_HOLIDAY") {
-          const cfTotal = Number(
-            kind === "ANNUAL"
-              ? rights?.carryForwardAnnual ?? 0
-              : rights?.carryForwardHoliday ?? 0
-          );
-          const cfExpiry =
-            kind === "ANNUAL"
-              ? rights?.carryForwardAnnualExpiry
-                ? new Date(rights.carryForwardAnnualExpiry)
-                : null
-              : rights?.carryForwardHolidayExpiry
-              ? new Date(rights.carryForwardHolidayExpiry)
-              : null;
+        if (kind === "ANNUAL") {
+          const currentApprovedRemain = Number(rights?.vacationLeave ?? 0);
+          let currentRemain = currentApprovedRemain;
+
+          const seg = segments.find((s) => s.year === y) || null;
+          const segStartInYear = seg?.start ?? start;
+          const segEndInYear = seg?.end ?? end;
+
+          const empStart = user.employee.startDate
+            ? new Date(user.employee.startDate)
+            : null;
+          const unlock = empStart ? computeAnnualUnlockDate(empStart, y) : null;
+
+          // Reserve against existing PENDING leaves in this year.
+          for (const l of leavesInYear) {
+            if (l.status !== "PENDING") continue;
+
+            const leaveDate = new Date(l.startDate);
+            const existingRes = getReservationForYear((l as any).reservation, y);
+
+            if (existingRes) {
+              const wantCf = Math.max(0, Number(existingRes.cf || 0));
+              const wantCurrent = Math.max(0, Number(existingRes.current || 0));
+
+              const cfUsed = annualCfPool
+                ? reserveAnnualCarryForwardFromPool({
+                    pool: annualCfPool,
+                    now,
+                    leaveStart: leaveDate,
+                    days: wantCf,
+                  }).used
+                : 0;
+
+              const shiftToCurrent = Math.max(0, wantCf - cfUsed);
+              currentRemain -= wantCurrent + shiftToCurrent;
+              continue;
+            }
+
+            const d = overlapDaysInYear({
+              leaveStart: new Date(l.startDate),
+              leaveEnd: new Date(l.endDate),
+              leaveSession: (l.session as HalfSession | null) ?? null,
+              year: y,
+              holidays: holidaysY,
+              weeklyHoliday: user.employee.weeklyHoliday,
+            });
+            if (d <= 0) continue;
+
+            const cfUsed = annualCfPool
+              ? reserveAnnualCarryForwardFromPool({
+                  pool: annualCfPool,
+                  now,
+                  leaveStart: leaveDate,
+                  days: d,
+                }).used
+              : 0;
+
+            currentRemain -= Math.max(0, d - cfUsed);
+          }
+
+          // Enforce anniversary-based unlock: before unlock date, current-year entitlement cannot be used.
+          let reqPre = 0;
+          let reqPost = Number(reqY || 0);
+
+          if (unlock && seg) {
+            reqPre = 0;
+            reqPost = 0;
+
+            if (segStartInYear < unlock) {
+              const preStart = segStartInYear;
+              const preEnd = minDate(segEndInYear, dayBeforeUTC(unlock));
+              if (preEnd >= preStart) {
+                const preSession: HalfSession =
+                  seg.includesOriginalStart && start < unlock ? sNorm : "FULL";
+                reqPre = countBusinessDays(
+                  preStart,
+                  preEnd,
+                  preSession,
+                  holidaysY,
+                  user.employee.weeklyHoliday ?? undefined
+                );
+              }
+            }
+
+            if (segEndInYear >= unlock) {
+              const postStart = maxDate(segStartInYear, unlock);
+              const postEnd = segEndInYear;
+              if (postEnd >= postStart) {
+                const postSession: HalfSession =
+                  seg.includesOriginalStart && start >= unlock ? sNorm : "FULL";
+                reqPost = countBusinessDays(
+                  postStart,
+                  postEnd,
+                  postSession,
+                  holidaysY,
+                  user.employee.weeklyHoliday ?? undefined
+                );
+              }
+            }
+          }
+
+          const reqTotal = Math.max(0, Number(reqPre || 0)) + Math.max(0, Number(reqPost || 0));
+          if (reqTotal <= 0) continue;
+
+          const cfUsableNowForSegStart = annualCfPool
+            ? sumUsableAnnualCarryForward({
+                buckets: annualCfPool,
+                now,
+                leaveStart: segStartInYear,
+              })
+            : 0;
+
+          if (reqPre > 0) {
+            if (reqPre > Math.max(0, cfUsableNowForSegStart)) {
+              return NextResponse.json(
+                {
+                  error: `ยอดยกพักร้อนไม่พอก่อนถึงวันครบรอบ (ปี ${y}) ต้องใช้ ${reqPre} วัน แต่เหลือ ${Math.max(
+                    0,
+                    cfUsableNowForSegStart
+                  )} วัน`,
+                },
+                { status: 400 }
+              );
+            }
+          }
+
+          const wantCfNew = Math.min(reqTotal, Math.max(0, cfUsableNowForSegStart));
+          const cfUsedNew = annualCfPool
+            ? reserveAnnualCarryForwardFromPool({
+                pool: annualCfPool,
+                now,
+                leaveStart: segStartInYear,
+                days: wantCfNew,
+              }).used
+            : 0;
+
+          if (reqPre > 0 && cfUsedNew + 1e-9 < reqPre) {
+            return NextResponse.json(
+              { error: `ยอดยกพักร้อนไม่พอก่อนถึงวันครบรอบ (ปี ${y})` },
+              { status: 400 }
+            );
+          }
+
+          const useCurrentNew = Math.max(0, reqTotal - cfUsedNew);
+          if (useCurrentNew > Math.max(0, currentRemain)) {
+            return NextResponse.json(
+              {
+                error: `สิทธิ์พักร้อนคงเหลือไม่พอ (ปี ${y} เหลือ ${Math.max(
+                  0,
+                  currentRemain
+                )} วัน)`,
+              },
+              { status: 400 }
+            );
+          }
+
+          currentRemain -= useCurrentNew;
+
+          reservation[String(y)] = {
+            cf: Number(cfUsedNew),
+            current: Number(useCurrentNew),
+          };
+        } else if (kind === "ANNUAL_HOLIDAY") {
+          const cfTotal = Number(rights?.carryForwardHoliday ?? 0);
+          const cfExpiry = rights?.carryForwardHolidayExpiry
+            ? new Date(rights.carryForwardHolidayExpiry)
+            : null;
           const cfActiveNow = !!(cfTotal > 0 && cfExpiry && cfExpiry > now);
 
           let cfRemain = cfActiveNow ? cfTotal : 0;
-          const currentApprovedRemain = Number(
-            kind === "ANNUAL" ? rights?.vacationLeave ?? 0 : rights?.holidayLeave ?? 0
-          );
+          const currentApprovedRemain = Number(rights?.holidayLeave ?? 0);
           let currentRemain = currentApprovedRemain;
 
-          const segStartInYear =
-            segments.find((s) => s.year === y)?.start ?? start;
+          const segStartInYear = segments.find((s) => s.year === y)?.start ?? start;
 
           for (const l of leavesInYear) {
             if (l.status !== "PENDING") continue;
+
+            const existingRes = getReservationForYear((l as any).reservation, y);
+            if (existingRes) {
+              let exCf = Math.max(0, Number(existingRes.cf || 0));
+              let exCurrent = Math.max(0, Number(existingRes.current || 0));
+
+              // If CF is not usable now, shift reserved CF to current (matches approval policy).
+              if (!cfActiveNow && exCf > 0) {
+                exCurrent += exCf;
+                exCf = 0;
+              }
+
+              cfRemain -= exCf;
+              currentRemain -= exCurrent;
+              continue;
+            }
+
             const d = overlapDaysInYear({
               leaveStart: new Date(l.startDate),
               leaveEnd: new Date(l.endDate),
@@ -353,12 +572,7 @@ export async function POST(req: NextRequest) {
             if (d <= 0) continue;
             const leaveDate = new Date(l.startDate);
             let remain = d;
-            if (
-              cfRemain > 0 &&
-              cfExpiry &&
-              cfActiveNow &&
-              leaveDate < cfExpiry
-            ) {
+            if (cfRemain > 0 && cfExpiry && cfActiveNow && leaveDate < cfExpiry) {
               const useCF = Math.min(cfRemain, remain);
               cfRemain -= useCF;
               remain -= useCF;
@@ -416,35 +630,6 @@ export async function POST(req: NextRequest) {
             reservation[String(y)] = {
               cf: Number(useCfNew),
               current: Number(remainNew),
-            };
-          } else {
-            const available =
-              Math.max(0, currentRemain) +
-              (cfActiveNow ? Math.max(0, cfRemain) : 0);
-            if (reqY > available) {
-              return NextResponse.json(
-                { error: `สิทธิ์คงเหลือไม่พอ (ปี ${y} เหลือ ${available} วัน)` },
-                { status: 400 }
-              );
-            }
-
-            // จองสิทธิ์สำหรับคำขอใหม่นี้ (ไม่เอาไปหักจริงจนกว่าจะ APPROVED)
-            // ใช้ตรรกะเดียวกับ validation: ยอดยกใช้ได้เฉพาะถ้ายังไม่หมดอายุ ณ ตอนยื่นลา และวันที่ลาอยู่ก่อนวันหมดอายุ
-            let remainNew = reqY;
-            let useCfNew = 0;
-            if (
-              cfRemain > 0 &&
-              cfExpiry &&
-              cfActiveNow &&
-              segStartInYear < cfExpiry
-            ) {
-              useCfNew = Math.min(cfRemain, remainNew);
-              remainNew -= useCfNew;
-            }
-            const useCurrentNew = remainNew;
-            reservation[String(y)] = {
-              cf: Number(useCfNew),
-              current: Number(useCurrentNew),
             };
           }
         } else {
@@ -561,6 +746,85 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: "leave not found" }, { status: 404 });
     }
 
+    // Guard (pre-update): prevent approving ANNUAL that uses current-year entitlement
+    // before the employee's anniversary unlock date within that year.
+    if (status === "APPROVED" && prev.kind === "ANNUAL" && prev.status !== "APPROVED") {
+      const leaveForGuard = await prisma.leave.findUnique({
+        where: { id: leaveIntId },
+        select: {
+          kind: true,
+          startDate: true,
+          endDate: true,
+          session: true,
+          reservation: true,
+          user: { select: { employee: { select: { startDate: true, weeklyHoliday: true } } } },
+        },
+      });
+
+      const employeeStartDate = leaveForGuard?.user?.employee?.startDate
+        ? new Date(leaveForGuard.user.employee.startDate)
+        : null;
+      const reservation = leaveForGuard?.reservation as
+        | Record<string, { cf?: number; current?: number }>
+        | null
+        | undefined;
+
+      if (employeeStartDate && reservation && typeof reservation === "object") {
+        const leaveStart = new Date(leaveForGuard!.startDate);
+        const leaveEnd = new Date(leaveForGuard!.endDate);
+        const leaveSegments = splitRangeByYear(leaveStart, leaveEnd);
+        const holidayCache = new Map<number, Set<string>>();
+
+        for (const [yearStr, alloc] of Object.entries(reservation)) {
+          const y = Number(yearStr);
+          if (!Number.isFinite(y)) continue;
+          const current = Math.max(0, Number(alloc?.current ?? 0));
+          if (current <= 0) continue;
+
+          const unlock = computeAnnualUnlockDate(employeeStartDate, y);
+          if (!unlock) continue;
+
+          const seg = leaveSegments.find((s) => s.year === y);
+          if (!seg) continue;
+
+          if (seg.end < unlock) {
+            return NextResponse.json(
+              {
+                error: `พักร้อนปี ${y} ยังไม่ถึงวันปลดล็อคตามรอบอายุงาน จึงห้ามใช้สิทธิ์ปีนี้ก่อนวันครบรอบ`,
+              },
+              { status: 400 }
+            );
+          }
+
+          const holidaysY = holidayCache.get(y) ?? (await holidaySetForYear(y));
+          if (!holidayCache.has(y)) holidayCache.set(y, holidaysY);
+
+          const postStart = maxDate(seg.start, unlock);
+          const postEnd = seg.end;
+          const postSession: HalfSession =
+            seg.includesOriginalStart && leaveStart >= unlock
+              ? ((leaveForGuard!.session as HalfSession | null) ?? "FULL")
+              : "FULL";
+          const postDays = countBusinessDays(
+            postStart,
+            postEnd,
+            postSession,
+            holidaysY,
+            leaveForGuard?.user?.employee?.weeklyHoliday ?? undefined
+          );
+
+          if (current > Math.max(0, postDays) + 1e-9) {
+            return NextResponse.json(
+              {
+                error: `พักร้อนปี ${y} ยังไม่ปลดล็อคครบตามวันครบรอบ: ขอใช้สิทธิ์ปีนี้ ${current} วัน แต่ช่วงหลังครบรอบมีได้แค่ ${postDays} วัน`,
+              },
+              { status: 400 }
+            );
+          }
+        }
+      }
+    }
+
     const updatedLeave = await prisma.leave.update({
       where: { id: leaveIntId },
       data: {
@@ -634,6 +898,10 @@ export async function PATCH(req: NextRequest) {
           | null
           | undefined;
         if (res && typeof res === "object") {
+          const leaveStart = new Date(updatedLeave.startDate);
+          const leaveEnd = new Date(updatedLeave.endDate);
+          const leaveSegments = splitRangeByYear(leaveStart, leaveEnd);
+
           const entries = Object.entries(res);
           for (const [yearStr, alloc] of entries) {
             const y = Number(yearStr);
@@ -649,16 +917,21 @@ export async function PATCH(req: NextRequest) {
             });
             if (!rights) continue;
 
-            // Policy: once carry-forward is expired "today", it cannot be used even if the leave date was before expiry.
-            // If reservation tries to use CF but CF is expired now, shift that amount to current.
-            if (updatedLeave.kind === "ANNUAL") {
-              const expiry = rights.carryForwardAnnualExpiry
-                ? new Date(rights.carryForwardAnnualExpiry)
-                : null;
-              if (cf > 0 && (!expiry || expiry <= now)) {
-                current += cf;
-                cf = 0;
-              }
+            const segStartForYear =
+              leaveSegments.find((s) => s.year === y)?.start ?? leaveStart;
+
+            // Policy: once carry-forward is expired "today", it cannot be used.
+            // For ANNUAL we use multi-bucket carry-forward (FIFO by expiry).
+            if (updatedLeave.kind === "ANNUAL" && cf > 0) {
+              const taken = await takeAnnualCarryForwardDays({
+                employeeId,
+                now,
+                leaveStart: segStartForYear,
+                days: cf,
+              });
+              const shiftToCurrent = Math.max(0, cf - taken.used);
+              current += shiftToCurrent;
+              cf = 0;
             }
             if (updatedLeave.kind === "ANNUAL_HOLIDAY") {
               const expiry = rights.carryForwardHolidayExpiry
@@ -671,12 +944,6 @@ export async function PATCH(req: NextRequest) {
             }
 
             if (updatedLeave.kind === "ANNUAL") {
-              if (cf > 0) {
-                await prisma.leaveRights.updateMany({
-                  where: { employeeId, year: y },
-                  data: { carryForwardAnnual: { decrement: cf } },
-                });
-              }
               if (current > 0) {
                 await prisma.leaveRights.updateMany({
                   where: { employeeId, year: y },
@@ -745,21 +1012,14 @@ export async function PATCH(req: NextRequest) {
           let remain = Number(daysInYear);
 
           // 1) หักยอดยกก่อน โดยอิง "วันที่ลา" (segment.start) ไม่ใช่วันที่อนุมัติ
-          if (
-            updatedLeave.kind === "ANNUAL" &&
-            carryForwardAnnualNum > 0 &&
-            rights.carryForwardAnnualExpiry &&
-            new Date(rights.carryForwardAnnualExpiry) > now &&
-            seg.start < new Date(rights.carryForwardAnnualExpiry)
-          ) {
-            const useCF = Math.min(remain, carryForwardAnnualNum);
-            if (useCF > 0) {
-              await prisma.leaveRights.updateMany({
-                where: { employeeId, year: seg.year },
-                data: { carryForwardAnnual: { decrement: useCF } },
-              });
-              remain -= useCF;
-            }
+          if (updatedLeave.kind === "ANNUAL" && remain > 0) {
+            const taken = await takeAnnualCarryForwardDays({
+              employeeId,
+              now,
+              leaveStart: seg.start,
+              days: remain,
+            });
+            remain -= Math.max(0, taken.used);
           }
           if (
             updatedLeave.kind === "ANNUAL_HOLIDAY" &&
