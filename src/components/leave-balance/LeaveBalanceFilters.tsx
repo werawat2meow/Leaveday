@@ -75,7 +75,7 @@ export default function LeaveBalanceFilters({
 					/>
 				</label>
 
-				<label className="block">
+				{/* <label className="block">
 					<span className="mb-1 block text-sm text-slate-700 dark:text-slate-300">ปี</span>
 					<input
 						type="number"
@@ -85,7 +85,7 @@ export default function LeaveBalanceFilters({
 						onChange={(event) => onYearChange(event.target.value)}
 						className="w-full rounded-xl border border-slate-300 bg-white px-3 py-3 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-800/80 dark:text-slate-100"
 					/>
-				</label>
+				</label> */}
 
 				{canShow("org") && (
 					<SelectField
