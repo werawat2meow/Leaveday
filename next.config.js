@@ -1,5 +1,7 @@
 /** @type {import('next').NextConfig} */
 module.exports = {
+  // Workaround for Windows EPERM on `.next/trace` (output file tracing).
+  outputFileTracing: false,
   experimental: {
     optimizeCss: false,            // ปิด lightningcss (กัน error binary)
     disableOptimizedLoading: true, // กัน error preloading บางเคส

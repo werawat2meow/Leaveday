@@ -48,14 +48,15 @@ export async function getActiveAnnualCarryForwardBuckets(params: { employeeId: n
 }
 
 export function sumUsableAnnualCarryForward(params: {
-	buckets: Array<Pick<AnnualCarryForwardBucket, "remaining" | "expiresAt">>;
+	buckets: Array<Pick<AnnualCarryForwardBucket, "remaining" | "expiresAt" | "originYear">>;
+	employeeStartDate?: Date | null;
 	now: Date;
 	leaveStart: Date;
 }) {
-	const { buckets, now, leaveStart } = params;
+	const { buckets, employeeStartDate, now, leaveStart } = params;
 	let sum = 0;
 	for (const bucket of buckets) {
-		if (isBucketUsable({ bucket, now, leaveStart })) sum += Math.max(0, bucket.remaining);
+		if (isBucketUsable({ bucket, employeeStartDate, now, leaveStart })) sum += Math.max(0, bucket.remaining);
 	}
 	return sum;
 }
@@ -66,19 +67,20 @@ export function sumUsableAnnualCarryForward(params: {
  */
 export async function takeAnnualCarryForwardDays(params: {
 	employeeId: number;
+	employeeStartDate?: Date | null;
 	now: Date;
 	leaveStart: Date;
 	days: number;
 	buckets?: AnnualCarryForwardBucket[]; // optional preloaded pool
 }) {
-	const { employeeId, now, leaveStart } = params;
+	const { employeeId, employeeStartDate, now, leaveStart } = params;
 	const want = Math.max(0, Number(params.days || 0));
 	if (!(want > 0)) return { used: 0, allocations: [] as Array<{ bucketId: number; originYear: number; use: number }> };
 
 	const pool = (params.buckets ? [...params.buckets] : await getActiveAnnualCarryForwardBuckets({ employeeId, now }))
 		.map((b) => ({ ...b })) as AnnualCarryForwardBucket[];
 
-	const { used, allocations } = allocateFromBuckets({ buckets: pool, now, leaveStart, days: want });
+	const { used, allocations } = allocateFromBuckets({ buckets: pool, employeeStartDate, now, leaveStart, days: want });
 	if (!(used > 0) || allocations.length === 0) return { used: 0, allocations: [] as Array<{ bucketId: number; originYear: number; use: number }> };
 
 	await prisma.$transaction(
@@ -98,11 +100,12 @@ export async function takeAnnualCarryForwardDays(params: {
  */
 export function reserveAnnualCarryForwardFromPool(params: {
 	pool: AnnualCarryForwardBucket[];
+	employeeStartDate?: Date | null;
 	now: Date;
 	leaveStart: Date;
 	days: number;
 }) {
-	const { pool, now, leaveStart } = params;
+	const { pool, employeeStartDate, now, leaveStart } = params;
 	const fifo = sortBucketsForFifo(pool);
-	return allocateFromBuckets({ buckets: fifo as AnnualCarryForwardBucket[], now, leaveStart, days: params.days });
+	return allocateFromBuckets({ buckets: fifo as AnnualCarryForwardBucket[], employeeStartDate, now, leaveStart, days: params.days });
 }

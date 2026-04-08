@@ -42,14 +42,31 @@ export function computeAnnualCarryForwardBucketExpiresAt(
 	return addDaysUTC(lastUsableDay, 1);
 }
 
+/**
+ * Policy: Annual leave earned in originYear becomes usable starting the employee's
+ * work-anniversary in (originYear + 1), inclusive.
+ */
+export function computeAnnualCarryForwardBucketStartsAt(
+	employeeStartDate: Date | null | undefined,
+	originYear: number
+) {
+	if (!employeeStartDate) return null;
+	return clampAnniversaryUTC({ employeeStartDate, year: originYear + 1 });
+}
+
 export function isBucketUsable(params: {
-	bucket: Pick<AnnualCarryForwardBucket, "remaining" | "expiresAt">;
+	bucket: Pick<AnnualCarryForwardBucket, "remaining" | "expiresAt" | "originYear">;
+	employeeStartDate?: Date | null;
 	now: Date;
 	leaveStart: Date;
 }) {
-	const { bucket, now, leaveStart } = params;
+	const { bucket, employeeStartDate, now, leaveStart } = params;
 	if (!(bucket.remaining > 0)) return false;
 	if (!(bucket.expiresAt instanceof Date) || Number.isNaN(+bucket.expiresAt)) return false;
+
+	const startsAt = computeAnnualCarryForwardBucketStartsAt(employeeStartDate, bucket.originYear);
+	if (startsAt && leaveStart < startsAt) return false;
+
 	return bucket.expiresAt > now && leaveStart < bucket.expiresAt;
 }
 
@@ -67,11 +84,12 @@ export function sortBucketsForFifo<T extends Pick<AnnualCarryForwardBucket, "exp
 
 export function allocateFromBuckets<T extends AnnualCarryForwardBucket>(params: {
 	buckets: T[];
+	employeeStartDate?: Date | null;
 	now: Date;
 	leaveStart: Date;
 	days: number;
 }) {
-	const { now, leaveStart } = params;
+	const { employeeStartDate, now, leaveStart } = params;
 	let remainingDays = Math.max(0, Number(params.days || 0));
 	const allocations: Array<{ bucketId: number; originYear: number; use: number }> = [];
 
@@ -81,7 +99,7 @@ export function allocateFromBuckets<T extends AnnualCarryForwardBucket>(params: 
 
 	for (const bucket of fifo) {
 		if (remainingDays <= 0) break;
-		if (!isBucketUsable({ bucket, now, leaveStart })) continue;
+		if (!isBucketUsable({ bucket, employeeStartDate, now, leaveStart })) continue;
 
 		const canUse = Math.min(remainingDays, Math.max(0, bucket.remaining));
 		if (!(canUse > 0)) continue;

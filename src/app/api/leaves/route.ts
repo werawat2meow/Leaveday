@@ -378,7 +378,8 @@ export async function POST(req: NextRequest) {
           const empStart = user.employee.startDate
             ? new Date(user.employee.startDate)
             : null;
-          const unlock = empStart ? computeAnnualUnlockDate(empStart, y) : null;
+          // Policy: Rights of year y become usable starting anniversary in (y + 1).
+          const unlock = empStart ? computeAnnualUnlockDate(empStart, y + 1) : null;
 
           // Reserve against existing PENDING leaves in this year.
           for (const l of leavesInYear) {
@@ -394,6 +395,7 @@ export async function POST(req: NextRequest) {
               const cfUsed = annualCfPool
                 ? reserveAnnualCarryForwardFromPool({
                     pool: annualCfPool,
+                    employeeStartDate: empStart,
                     now,
                     leaveStart: leaveDate,
                     days: wantCf,
@@ -418,6 +420,7 @@ export async function POST(req: NextRequest) {
             const cfUsed = annualCfPool
               ? reserveAnnualCarryForwardFromPool({
                   pool: annualCfPool,
+                  employeeStartDate: empStart,
                   now,
                   leaveStart: leaveDate,
                   days: d,
@@ -474,6 +477,7 @@ export async function POST(req: NextRequest) {
           const cfUsableNowForSegStart = annualCfPool
             ? sumUsableAnnualCarryForward({
                 buckets: annualCfPool,
+                employeeStartDate: empStart,
                 now,
                 leaveStart: segStartInYear,
               })
@@ -497,6 +501,7 @@ export async function POST(req: NextRequest) {
           const cfUsedNew = annualCfPool
             ? reserveAnnualCarryForwardFromPool({
                 pool: annualCfPool,
+                employeeStartDate: empStart,
                 now,
                 leaveStart: segStartInYear,
                 days: wantCfNew,
@@ -781,7 +786,8 @@ export async function PATCH(req: NextRequest) {
           const current = Math.max(0, Number(alloc?.current ?? 0));
           if (current <= 0) continue;
 
-          const unlock = computeAnnualUnlockDate(employeeStartDate, y);
+          // Policy: Rights of year y become usable starting anniversary in (y + 1).
+          const unlock = computeAnnualUnlockDate(employeeStartDate, y + 1);
           if (!unlock) continue;
 
           const seg = leaveSegments.find((s) => s.year === y);
@@ -850,6 +856,7 @@ export async function PATCH(req: NextRequest) {
                 unit: true,
                 levelP: true,
                 weeklyHoliday: true,
+                startDate: true,
               },
             },
           },
@@ -925,6 +932,9 @@ export async function PATCH(req: NextRequest) {
             if (updatedLeave.kind === "ANNUAL" && cf > 0) {
               const taken = await takeAnnualCarryForwardDays({
                 employeeId,
+                employeeStartDate: updatedLeave.user.employee.startDate
+                  ? new Date(updatedLeave.user.employee.startDate as any)
+                  : null,
                 now,
                 leaveStart: segStartForYear,
                 days: cf,
@@ -1015,6 +1025,9 @@ export async function PATCH(req: NextRequest) {
           if (updatedLeave.kind === "ANNUAL" && remain > 0) {
             const taken = await takeAnnualCarryForwardDays({
               employeeId,
+              employeeStartDate: updatedLeave.user.employee.startDate
+                ? new Date(updatedLeave.user.employee.startDate as any)
+                : null,
               now,
               leaveStart: seg.start,
               days: remain,

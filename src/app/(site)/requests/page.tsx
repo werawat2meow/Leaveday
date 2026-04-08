@@ -8,7 +8,6 @@ import { th } from "date-fns/locale/th";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import DatePicker, { registerLocale } from "react-datepicker";
-import "react-datepicker/dist/react-datepicker.css";
 import { countBusinessDays, normalizeSession } from "@/lib/leave-utils";
 
 registerLocale("th", th);
@@ -163,6 +162,19 @@ export default function LeavePage() {
   const [me, setMe] = useState<MeResponse>(null);
   const [loadingMe, setLoadingMe] = useState(false);
   const [meError, setMeError] = useState<string | null>(null);
+
+  const annualFirstUnlockDate = useMemo(() => {
+    const startRaw = me?.employee.startDate;
+    if (!startRaw) return null;
+    const empStart = new Date(startRaw);
+    if (isNaN(+empStart)) return null;
+    return annualUnlockDateForYear(empStart, empStart.getUTCFullYear() + 1);
+  }, [me?.employee.startDate]);
+
+  const isBeforeAnnualFirstUnlock = useMemo(() => {
+    if (!annualFirstUnlockDate) return false;
+    return new Date() < annualFirstUnlockDate;
+  }, [annualFirstUnlockDate]);
 
   // เพิ่ม state สำหรับ leaveUsed
   const [leaveUsed, setLeaveUsed] = useState<any>(null);
@@ -495,7 +507,8 @@ export default function LeavePage() {
       const unlockFromApi = leaveUsed?.annualUnlockDate
         ? new Date(leaveUsed.annualUnlockDate)
         : null;
-      const unlock = unlockFromApi ?? annualUnlockDateForYear(empStart, y);
+      // Policy: Rights of year y become usable starting anniversary in (y + 1).
+      const unlock = unlockFromApi ?? annualUnlockDateForYear(empStart, y + 1);
 
       let preDays = 0;
       if (from < unlock) {
@@ -1652,9 +1665,18 @@ export default function LeavePage() {
                   leaveUsed?.annualUnlockDate &&
                   Number(leaveUsed?.annualCurrentLocked ?? 0) > 0 ? (
                     <div className="mt-1 text-xs text-[var(--muted)]">
-                      สิทธิ์พักร้อนปีนี้จะปลดล็อควันที่{" "}
-                      {formatThaiDateDMY(leaveUsed.annualUnlockDate)} (ตอนนี้ล็อค{" "}
-                      {Number(leaveUsed.annualCurrentLocked).toFixed(1)} วัน)
+                      {isBeforeAnnualFirstUnlock && annualFirstUnlockDate ? (
+                        <>
+                          เริ่มใช้สิทธิ์พักร้อนได้ตั้งแต่{" "}
+                          {formatThaiDateDMY(annualFirstUnlockDate)} (ครบ 1 ปี)
+                        </>
+                      ) : (
+                        <>
+                          สิทธิ์พักร้อนปีนี้จะปลดล็อควันที่{" "}
+                          {formatThaiDateDMY(leaveUsed.annualUnlockDate)} (ตอนนี้ล็อค{" "}
+                          {Number(leaveUsed.annualCurrentLocked).toFixed(1)} วัน)
+                        </>
+                      )}
                     </div>
                   ) : null}
                   <div className="mt-2 text-sm text-cyan-400">

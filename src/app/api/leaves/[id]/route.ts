@@ -342,7 +342,11 @@ export async function PATCH(
                 // Guard: annual current-year entitlement unlocks on anniversary date each year.
                 // Before unlock date within year y, ANNUAL must be covered by carry-forward only.
                 if (leave.kind === "ANNUAL" && current > 0) {
-                  const unlock = computeAnnualUnlockDate(employee.startDate ? new Date(employee.startDate) : null, y);
+                  // Policy: Rights of year y become usable starting anniversary in (y + 1).
+                  const unlock = computeAnnualUnlockDate(
+                    employee.startDate ? new Date(employee.startDate) : null,
+                    y + 1
+                  );
                   if (unlock) {
                     const seg = leaveSegments.find((s) => s.year === y) || null;
                     const holidays = holidayCache.get(y) ?? (await holidaySetForYear(y));
@@ -400,6 +404,7 @@ export async function PATCH(
 
                   const alloc = allocateFromBuckets({
                     buckets: buckets as any,
+                    employeeStartDate: employee.startDate ? new Date(employee.startDate) : null,
                     now,
                     leaveStart: segStartForYear,
                     days: cf,
@@ -515,6 +520,7 @@ export async function PATCH(
 
                 const alloc = allocateFromBuckets({
                   buckets: buckets as any,
+                  employeeStartDate: employee.startDate ? new Date(employee.startDate) : null,
                   now,
                   leaveStart: seg.start,
                   days: remain,

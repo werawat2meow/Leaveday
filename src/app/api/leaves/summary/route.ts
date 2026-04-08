@@ -1,7 +1,7 @@
 import { authOptions } from "@/lib/auth";
 import { ensureLeaveRightsForYear } from "@/lib/leave-rights-rollover";
 import { computeAnnualUnlockDate } from "@/lib/annual-unlock";
-import { dayBeforeUTC } from "@/lib/annual-carry-forward-buckets";
+import { dayBeforeUTC, isBucketUsable } from "@/lib/annual-carry-forward-buckets";
 import { countBusinessDays } from "@/lib/leave-utils";
 import { prisma } from "@/lib/prisma";
 import { getServerSession } from "next-auth";
@@ -118,6 +118,9 @@ export async function GET(req: NextRequest) {
     }
 
     const weeklyHoliday = user.employee.weeklyHoliday;
+    const employeeStartDate = user.employee.startDate
+      ? new Date(user.employee.startDate)
+      : null;
 
     // ดึง LeaveRights สำหรับปีนี้
     await ensureLeaveRightsForYear(user.employee.id, year);
@@ -154,7 +157,16 @@ export async function GET(req: NextRequest) {
     }));
 
     const cfAnnualTotal = annualBuckets.reduce((sum, b) => sum + Math.max(0, b.remaining), 0);
-    const cfAnnualActiveNow = cfAnnualTotal > 0;
+    const cfAnnualUsableNow = annualBuckets.reduce((sum, b) => {
+      const usable = isBucketUsable({
+        bucket: { remaining: b.remaining, expiresAt: b.expiresAt, originYear: b.originYear },
+        employeeStartDate,
+        now,
+        leaveStart: now,
+      });
+      return usable ? sum + Math.max(0, b.remaining) : sum;
+    }, 0);
+    const cfAnnualActiveNow = cfAnnualUsableNow > 0;
     const carryAllowedAnnual = cfAnnualTotal;
 
     const cfHolidayTotal = Number(rights?.carryForwardHoliday ?? 0);
@@ -258,7 +270,7 @@ export async function GET(req: NextRequest) {
 
     // ===== คงเหลือ: ใช้ LeaveRights เป็นฐาน (APPROVED ถูกหักไปแล้ว) แล้วกัน PENDING เพิ่มเติม =====
     // ✅ เก็บ snapshot ก่อนกัน PENDING (approved-only)
-    const annualCfRemainApprovedOnly = cfAnnualActiveNow ? cfAnnualTotal : 0;
+    const annualCfRemainApprovedOnly = cfAnnualActiveNow ? cfAnnualUsableNow : 0;
     const annualCurrentRemainApprovedOnly = Number(rights?.vacationLeave ?? 0);
     const holidayCfRemainApprovedOnly = cfHolidayActiveNow ? cfHolidayTotal : 0;
     const holidayCurrentRemainApprovedOnly = Number(rights?.holidayLeave ?? 0);
@@ -271,7 +283,7 @@ export async function GET(req: NextRequest) {
 
     // cfPoolForReservation: ใช้ backfill reservation ของใบลาเก่าที่ไม่มี reservation
     // เพื่อไม่ให้การแก้ expiry ใน DB ทำให้ย้ายการกันสิทธิ์ย้อนหลัง
-    let annualCfPoolForReservation = cfAnnualActiveNow ? cfAnnualTotal : 0;
+    let annualCfPoolForReservation = cfAnnualActiveNow ? cfAnnualUsableNow : 0;
     let holidayCfPoolForReservation = cfHolidayActiveNow ? cfHolidayTotal : 0;
 
     // กันยอดจาก PENDING: อ่านจาก reservation เป็นหลัก
@@ -395,10 +407,8 @@ export async function GET(req: NextRequest) {
     const totalRemainHoliday = remainCarryForwardHoliday + remainHolidayLeave;
 
     // Annual unlock info (do not change existing totals; provide extra fields for UI)
-    const annualUnlockDate = computeAnnualUnlockDate(
-      user.employee.startDate ? new Date(user.employee.startDate) : null,
-      year
-    );
+    // Policy: Rights of year `year` become usable starting the anniversary in (year + 1).
+    const annualUnlockDate = computeAnnualUnlockDate(employeeStartDate, year + 1);
     const annualCurrentUnlockedNow = !!(annualUnlockDate && now >= annualUnlockDate);
     const annualCurrentAvailableNow = annualCurrentUnlockedNow ? remainVacationLeave : 0;
     const annualCurrentLocked = annualCurrentUnlockedNow ? 0 : remainVacationLeave;

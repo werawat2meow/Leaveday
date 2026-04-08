@@ -8,6 +8,7 @@ import {
   computeCarryForwardAnnualExpiry,
   computeCarryForwardHolidayExpiry,
 } from "@/lib/carry-forward-expiry";
+import { computeAnnualCarryForwardBucketExpiresAt } from "@/lib/annual-carry-forward-buckets";
 
 type Role = "MASTER_ADMIN" | "ADMIN" | "MANAGER" | "USER";
 
@@ -415,11 +416,63 @@ export async function PUT(req: NextRequest) {
             emp.startDate,
             rightsYear
           );
+
+          // Keep the bucket-based annual carry-forward store in sync.
+          // This field represents carry-forward from the previous rights year.
+          const originYear = rightsYear - 1;
+          const bucketExpiresAt = computeAnnualCarryForwardBucketExpiresAt(
+            emp.startDate,
+            originYear
+          );
+
+          if (cf > 0 && bucketExpiresAt) {
+            await (tx as any).annualCarryForwardBucket.upsert({
+              where: {
+                employeeId_originYear: { employeeId: emp.id, originYear },
+              },
+              update: {
+                remaining: cf,
+                expiresAt: bucketExpiresAt,
+              },
+              create: {
+                employeeId: emp.id,
+                originYear,
+                remaining: cf,
+                expiresAt: bucketExpiresAt,
+              },
+            });
+          } else if (cf <= 0) {
+            // When explicitly set to 0, remove any bucket row for that origin year.
+            await (tx as any).annualCarryForwardBucket
+              .delete({
+                where: {
+                  employeeId_originYear: { employeeId: emp.id, originYear },
+                },
+              })
+              .catch(() => {});
+          }
         } else if (startDateProvided && Number(currentRights.carryForwardAnnual ?? 0) > 0) {
           rightsUpdate.carryForwardAnnualExpiry = computeCarryForwardAnnualExpiry(
             emp.startDate,
             rightsYear
           );
+
+          // If startDate changes, keep the bucket expiry consistent too.
+          const originYear = rightsYear - 1;
+          const bucketExpiresAt = computeAnnualCarryForwardBucketExpiresAt(
+            emp.startDate,
+            originYear
+          );
+          if (bucketExpiresAt) {
+            await (tx as any).annualCarryForwardBucket
+              .update({
+                where: {
+                  employeeId_originYear: { employeeId: emp.id, originYear },
+                },
+                data: { expiresAt: bucketExpiresAt },
+              })
+              .catch(() => {});
+          }
         }
 
         if (carryForwardHolidayProvided) {
